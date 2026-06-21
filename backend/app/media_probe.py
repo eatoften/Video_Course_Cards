@@ -83,11 +83,5 @@ def probe_video(file_path: Path) -> dict:
 
 
 
-class VideoMetadata(BaseModel):
-    duration_seconds: float
-    width: int
-    height: int
-    video_codec: str
-    has_audio: bool
 
 
