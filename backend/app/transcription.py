@@ -4,8 +4,8 @@ from faster_whisper import WhisperModel
 from pydantic import BaseModel
 
 class TranscriptSegment(BaseModel):
-    start_seconds = float
-    end_seconds = float
+    start_seconds : float
+    end_seconds : float
     text: str
 
 
