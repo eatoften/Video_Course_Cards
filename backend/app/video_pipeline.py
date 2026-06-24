@@ -11,6 +11,8 @@ from .transcription import (
     TranscriptionResult,
 )
 
+from .job import VideoJob, VideoJobStatus
+
 
 class VideoProcessingResult(BaseModel):
     metadata: VideoMetadata
@@ -30,17 +32,23 @@ class VideoPipeline:
         self,
         video_path: Path,
         artifact_root: Path,
+        job:VideoJob | None = None,
     ) -> VideoProcessingResult:
         if not video_path.is_file():
             raise FileNotFoundError(
                 f"Video file not found: {video_path}"
             )
         
+        if job:
+            job.status = VideoJobStatus.probing
+        
         raw_media_data = probe_video(video_path)
 
         metadata = extract_video_metadata(
             raw_media_data
         )
+
+        job.metadata = metadata
 
         video_id = video_path.stem
 
@@ -56,10 +64,16 @@ class VideoPipeline:
             / f"{video_id}.json"
         )
 
+        if job:
+            job.status = VideoJobStatus.extracting_audio
+
         saved_audio_path = extract_audio(
             video_path,
             audio_path,
         )
+
+        if job:
+            job.status = VideoJobStatus.transcribing
 
         transcription = self._transcriber.transcribe(
             saved_audio_path
@@ -69,6 +83,9 @@ class VideoPipeline:
             transcription,
             transcript_path
         )
+
+        if job:
+            job.status = VideoJobStatus.completed
 
         return VideoProcessingResult(
             metadata=metadata,
