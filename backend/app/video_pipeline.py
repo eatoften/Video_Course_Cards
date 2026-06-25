@@ -86,7 +86,9 @@ class VideoPipeline:
         )
 
         if job:
+            job.transcript_path = saved_transcript_path
             job.status = VideoJobStatus.completed
+
 
         return VideoProcessingResult(
             metadata=metadata,
