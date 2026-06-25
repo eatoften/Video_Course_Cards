@@ -48,7 +48,8 @@ class VideoPipeline:
             raw_media_data
         )
 
-        job.metadata = metadata
+        if job is not None:
+            job.metadata = metadata
 
         video_id = video_path.stem
 

@@ -19,3 +19,6 @@ class VideoJob(BaseModel):
     video_path: Path
     status: VideoJobStatus
     metadata: VideoMetadata | None = None
+
+
+JOB_STORE: dict[str,VideoJob] = {}

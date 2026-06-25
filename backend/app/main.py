@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from .media_probe import MediaProbeError, probe_video
+from .job import JOB_STORE, VideoJob, VideoJobStatus
 
 UPLOAD_DIR = Path(__file__).resolve().parent.parent / "data" / "uploads"
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
@@ -20,6 +21,7 @@ class VideoUploadResponse(BaseModel):
     filename: str
     stored_name: str
     size_bytes: int
+    status: VideoJobStatus
 
 app = FastAPI()
 
@@ -36,6 +38,23 @@ app.add_middleware(
 @app.get("/health")
 def health_check():
     return {"status":"ok"}
+
+
+@app.get(
+    "/jobs/{job_id}",
+    response_model=VideoJob,
+)
+def get_job(job_id: str) -> VideoJob:
+    job = JOB_STORE.get(job_id)
+
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found.",
+        )
+
+    return job
+
 
 
 @app.post("/videos/inspect")
@@ -93,9 +112,18 @@ def upload_video(video:UploadFile) -> VideoUploadResponse:
         destination.unlink(missing_ok=True)
         raise
 
-    return {
-        "id":video_id,
-        "filename": original_name,
-        "stored_name": destination.name,
-        "size_bytes": destination.stat().st_size,
-    }
+    job = VideoJob(
+        id = video_id,
+        video_path=destination,
+        status=VideoJobStatus.uploaded
+    )
+
+    JOB_STORE[job.id] = job
+
+    return VideoUploadResponse(
+        id = video_id,
+        filename = original_name,
+        stored_name = destination.name,
+        size_bytes = destination.stat().st_size,
+        status = job.status
+    )
