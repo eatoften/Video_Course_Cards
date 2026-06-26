@@ -4,10 +4,11 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.job import (
-    JOB_STORE,
     VideoJob,
     VideoJobStatus,
 )
+from app.job_store import create_job as save_job
+from app.job_store import get_job
 from app.media_metadata import VideoMetadata
 
 
@@ -27,7 +28,7 @@ def create_job(
         status=status,
     )
 
-    JOB_STORE[job.id] = job
+    save_job(job)
 
     return job
 
@@ -60,6 +61,7 @@ def test_run_job_completes_uploaded_job(
             video_path,
             artifact_root,
             job,
+            on_job_update=None,
         ):
             calls.append("process")
 
@@ -83,23 +85,21 @@ def test_run_job_completes_uploaded_job(
         f"/jobs/{job.id}/run"
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
 
     data = response.json()
 
     assert data["id"] == job.id
-    assert data["status"] == "completed"
-    assert data["metadata"] == metadata.model_dump()
-    assert data["transcript_path"] == str(
-        transcript_path
-    )
+    assert data["status"] == "probing"
+    assert data["metadata"] is None
+    assert data["transcript_path"] is None
     assert data["error_message"] is None
 
     assert calls == ["process"]
 
-    stored_job = JOB_STORE[job.id]
+    stored_job = get_job(job.id)
 
-    assert stored_job is job
+    assert stored_job is not None
     assert stored_job.status == VideoJobStatus.completed
     assert stored_job.metadata == metadata
     assert stored_job.transcript_path == transcript_path
@@ -162,6 +162,7 @@ def test_run_job_marks_job_failed_when_pipeline_fails(
             video_path,
             artifact_root,
             job,
+            on_job_update=None,
         ):
             job.status = VideoJobStatus.transcribing
 
@@ -179,13 +180,11 @@ def test_run_job_marks_job_failed_when_pipeline_fails(
         f"/jobs/{job.id}/run"
     )
 
-    assert response.status_code == 500
-    assert response.json() == {
-        "detail": "Video processing failed."
-    }
+    assert response.status_code == 202
 
-    stored_job = JOB_STORE[job.id]
+    stored_job = get_job(job.id)
 
+    assert stored_job is not None
     assert stored_job.status == VideoJobStatus.failed
     assert (
         stored_job.error_message

@@ -1,14 +1,20 @@
 import shutil
+from contextlib import asynccontextmanager
 from functools import cache
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, UploadFile, status
+from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import BackgroundTasks
 from pydantic import BaseModel
 
-from .job import JOB_STORE, VideoJob, VideoJobStatus
+from .db import init_db
+from .job import VideoJob, VideoJobStatus
+from .job_store import (
+    create_job,
+    get_job as load_job,
+    update_job,
+)
 from .media_probe import MediaProbeError, probe_video
 from .transcription import FasterWhisperTranscriber
 from .video_pipeline import VideoPipeline
@@ -36,7 +42,14 @@ class VideoUploadResponse(BaseModel):
     status: VideoJobStatus
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 app.add_middleware(
@@ -147,7 +160,7 @@ def upload_video(
         status=VideoJobStatus.uploaded,
     )
 
-    JOB_STORE[job.id] = job
+    create_job(job)
 
     return VideoUploadResponse(
         id=video_id,
@@ -163,7 +176,7 @@ def upload_video(
     response_model=VideoJob,
 )
 def get_job(job_id: str) -> VideoJob:
-    job = JOB_STORE.get(job_id)
+    job = load_job(job_id)
 
     if job is None:
         raise HTTPException(
@@ -173,15 +186,17 @@ def get_job(job_id: str) -> VideoJob:
 
     return job
 
+
 @app.post(
     "/jobs/{job_id}/run",
     response_model=VideoJob,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 def run_job(
     job_id: str,
     background_tasks: BackgroundTasks,
 ) -> VideoJob:
-    job = JOB_STORE.get(job_id)
+    job = load_job(job_id)
 
     if job is None:
         raise HTTPException(
@@ -198,16 +213,20 @@ def run_job(
             ),
         )
 
-    job.error_message = None
-
     job.status = VideoJobStatus.probing
+    job.error_message = None
+    update_job(job)
 
-    background_tasks.add_task(_run_pipeline, job)
-
+    background_tasks.add_task(_run_pipeline, job.id)
     return job
 
 
-def _run_pipeline(job: VideoJob):
+def _run_pipeline(job_id: str) -> None:
+    job = load_job(job_id)
+
+    if job is None:
+        return
+
     try:
         pipeline = get_video_pipeline()
 
@@ -215,8 +234,13 @@ def _run_pipeline(job: VideoJob):
             video_path=job.video_path,
             artifact_root=DATA_DIR,
             job=job,
+            on_job_update=update_job,
         )
+
+        update_job(job)
 
     except Exception as exc:
         job.status = VideoJobStatus.failed
         job.error_message = str(exc)
+
+        update_job(job)

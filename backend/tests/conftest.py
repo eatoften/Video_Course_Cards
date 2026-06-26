@@ -1,11 +1,16 @@
 import pytest
 
-from app.job import JOB_STORE
+from app.db import configure_db, init_db
+from app.job_store import clear_jobs
 
 @pytest.fixture(autouse=True)
-def clear_job_store():
-    JOB_STORE.clear()
+def isolated_job_db(tmp_path_factory):
+    db_dir = tmp_path_factory.mktemp("job-db")
+
+    configure_db(db_dir / "jobs.db")
+    init_db()
+    clear_jobs()
 
     yield
 
-    JOB_STORE.clear()
+    clear_jobs()

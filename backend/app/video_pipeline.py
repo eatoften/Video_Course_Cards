@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -13,6 +14,8 @@ from .transcription import (
 
 from .job import VideoJob, VideoJobStatus
 
+JobUpdateCallback = Callable[[VideoJob], None]
+
 
 class VideoProcessingResult(BaseModel):
     metadata: VideoMetadata
@@ -22,73 +25,68 @@ class VideoProcessingResult(BaseModel):
 
 
 class VideoPipeline:
-    def __init__(
-        self,
-        transcriber: FasterWhisperTranscriber,
-    ) -> None:
+    def __init__(self, transcriber: FasterWhisperTranscriber) -> None:
         self._transcriber = transcriber
 
     def process(
         self,
         video_path: Path,
         artifact_root: Path,
-        job:VideoJob | None = None,
+        job: VideoJob | None = None,
+        on_job_update: JobUpdateCallback | None = None,
     ) -> VideoProcessingResult:
+
         if not video_path.is_file():
-            raise FileNotFoundError(
-                f"Video file not found: {video_path}"
-            )
-        
+            raise FileNotFoundError(f"Video file not found: {video_path}")
+
+        # 1. probe
         if job:
             job.status = VideoJobStatus.probing
-        
+            if on_job_update:
+                on_job_update(job)
+
         raw_media_data = probe_video(video_path)
 
-        metadata = extract_video_metadata(
-            raw_media_data
-        )
+        metadata = extract_video_metadata(raw_media_data)
 
-        if job is not None:
+        if job:
             job.metadata = metadata
+            if on_job_update:
+                on_job_update(job)
 
+        # 2. audio path
         video_id = video_path.stem
 
-        audio_path = (
-            artifact_root
-            / "audio"
-            / f"{video_id}.wav"
-        )
+        audio_path = artifact_root / "audio" / f"{video_id}.wav"
+        transcript_path = artifact_root / "transcripts" / f"{video_id}.json"
 
-        transcript_path = (
-            artifact_root
-            / "transcripts"
-            / f"{video_id}.json"
-        )
-
+        # 3. extract audio
         if job:
             job.status = VideoJobStatus.extracting_audio
+            if on_job_update:
+                on_job_update(job)
 
-        saved_audio_path = extract_audio(
-            video_path,
-            audio_path,
-        )
+        saved_audio_path = extract_audio(video_path, audio_path)
 
+        # 4. transcription
         if job:
             job.status = VideoJobStatus.transcribing
+            if on_job_update:
+                on_job_update(job)
 
-        transcription = self._transcriber.transcribe(
-            saved_audio_path
-        )
+        transcription = self._transcriber.transcribe(saved_audio_path)
 
+        # 5. save transcript
         saved_transcript_path = save_transcription(
             transcription,
-            transcript_path
+            transcript_path,
         )
 
         if job:
             job.transcript_path = saved_transcript_path
             job.status = VideoJobStatus.completed
-
+            if on_job_update:
+                on_job_update(job)
 
         return VideoProcessingResult(
             metadata=metadata,

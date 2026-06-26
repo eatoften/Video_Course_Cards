@@ -2,10 +2,10 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.job import (
-    JOB_STORE,
     VideoJob,
     VideoJobStatus,
 )
+from app.job_store import create_job, get_job
 
 
 client = TestClient(main.app)
@@ -57,10 +57,10 @@ def test_upload_video_creates_job(monkeypatch, tmp_path):
     job_id = data["id"]
 
     assert data["status"] == "uploaded"
-    assert job_id in JOB_STORE
 
-    job = JOB_STORE[job_id]
+    job = get_job(job_id)
 
+    assert job is not None
     assert job.id == job_id
     assert job.status == VideoJobStatus.uploaded
     assert job.video_path == (
@@ -80,7 +80,7 @@ def test_get_job_returns_stored_job(tmp_path):
         status=VideoJobStatus.uploaded,
     )
 
-    JOB_STORE[job.id] = job
+    create_job(job)
 
     response = client.get(
         "/jobs/job-123"
