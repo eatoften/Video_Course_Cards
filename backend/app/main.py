@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import BackgroundTasks
 from pydantic import BaseModel
 
 from .job import JOB_STORE, VideoJob, VideoJobStatus
@@ -172,12 +173,14 @@ def get_job(job_id: str) -> VideoJob:
 
     return job
 
-
 @app.post(
     "/jobs/{job_id}/run",
     response_model=VideoJob,
 )
-def run_job(job_id: str) -> VideoJob:
+def run_job(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+) -> VideoJob:
     job = JOB_STORE.get(job_id)
 
     if job is None:
@@ -197,6 +200,14 @@ def run_job(job_id: str) -> VideoJob:
 
     job.error_message = None
 
+    job.status = VideoJobStatus.probing
+
+    background_tasks.add_task(_run_pipeline, job)
+
+    return job
+
+
+def _run_pipeline(job: VideoJob):
     try:
         pipeline = get_video_pipeline()
 
@@ -209,12 +220,3 @@ def run_job(job_id: str) -> VideoJob:
     except Exception as exc:
         job.status = VideoJobStatus.failed
         job.error_message = str(exc)
-
-        raise HTTPException(
-            status_code=(
-                status.HTTP_500_INTERNAL_SERVER_ERROR
-            ),
-            detail="Video processing failed.",
-        ) from exc
-
-    return job
