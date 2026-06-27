@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type MouseEvent,
+} from 'react'
 import './App.css'
 
 const API_BASE_URL = 'http://127.0.0.1:8000'
@@ -48,12 +55,27 @@ type TranscriptionResult = {
   segments: TranscriptSegment[]
 }
 
+type TranscriptContext = {
+  job_id: string
+  source_video: string
+  start_seconds: number
+  end_seconds: number
+  segments: TranscriptSegment[]
+  text: string
+}
+
 type UploadResponse = {
   id: string
   filename: string
   stored_name: string
   size_bytes: number
   status: JobStatus
+}
+
+type SegmentRange = {
+  anchorIndex: number
+  startIndex: number
+  endIndex: number
 }
 
 const runningStatuses: JobStatus[] = [
@@ -109,11 +131,13 @@ function App() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [job, setJob] = useState<VideoJob | null>(null)
   const [transcript, setTranscript] = useState<TranscriptionResult | null>(null)
-  const [selectedSegment, setSelectedSegment] =
-    useState<TranscriptSegment | null>(null)
+  const [selectedRange, setSelectedRange] = useState<SegmentRange | null>(null)
+  const [transcriptContext, setTranscriptContext] =
+    useState<TranscriptContext | null>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [isUploading, setIsUploading] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
+  const [isLoadingContext, setIsLoadingContext] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const activeSegmentIndex = useMemo(() => {
@@ -128,6 +152,22 @@ function App() {
       )
     })
   }, [currentTime, transcript])
+
+  const selectedSegments = useMemo(() => {
+    if (!transcript || !selectedRange) {
+      return []
+    }
+
+    return transcript.segments.slice(
+      selectedRange.startIndex,
+      selectedRange.endIndex + 1,
+    )
+  }, [selectedRange, transcript])
+
+  function clearTranscriptSelection() {
+    setSelectedRange(null)
+    setTranscriptContext(null)
+  }
 
   function handleVideoChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -148,7 +188,7 @@ function App() {
     })
     setJob(null)
     setTranscript(null)
-    setSelectedSegment(null)
+    clearTranscriptSelection()
     setErrorMessage(null)
   }
 
@@ -174,7 +214,7 @@ function App() {
     setIsUploading(true)
     setErrorMessage(null)
     setTranscript(null)
-    setSelectedSegment(null)
+    clearTranscriptSelection()
 
     try {
       const formData = new FormData()
@@ -203,7 +243,7 @@ function App() {
     setIsStarting(true)
     setErrorMessage(null)
     setTranscript(null)
-    setSelectedSegment(null)
+    clearTranscriptSelection()
 
     try {
       const nextJob = await fetchJson<VideoJob>(
@@ -220,14 +260,83 @@ function App() {
     }
   }
 
-  function jumpToSegment(segment: TranscriptSegment) {
-    setSelectedSegment(segment)
+  function selectSegment(
+    segment: TranscriptSegment,
+    index: number,
+    event: MouseEvent<HTMLButtonElement>,
+  ) {
+    setSelectedRange((previousRange) => {
+      if (event.shiftKey && previousRange) {
+        return {
+          anchorIndex: previousRange.anchorIndex,
+          startIndex: Math.min(previousRange.anchorIndex, index),
+          endIndex: Math.max(previousRange.anchorIndex, index),
+        }
+      }
+
+      return {
+        anchorIndex: index,
+        startIndex: index,
+        endIndex: index,
+      }
+    })
 
     if (videoRef.current) {
       videoRef.current.currentTime = segment.start_seconds
       void videoRef.current.play()
     }
   }
+
+  useEffect(() => {
+    if (!job || !transcript || !selectedRange) {
+      setTranscriptContext(null)
+      return
+    }
+
+    const firstSegment = transcript.segments[selectedRange.startIndex]
+    const lastSegment = transcript.segments[selectedRange.endIndex]
+
+    if (!firstSegment || !lastSegment) {
+      setTranscriptContext(null)
+      return
+    }
+
+    const controller = new AbortController()
+    const params = new URLSearchParams({
+      start_seconds: String(firstSegment.start_seconds),
+      end_seconds: String(lastSegment.end_seconds),
+    })
+
+    setIsLoadingContext(true)
+
+    void fetchJson<TranscriptContext>(
+      `/jobs/${job.id}/context?${params.toString()}`,
+      { signal: controller.signal },
+    )
+      .then((context) => {
+        setTranscriptContext(context)
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return
+        }
+
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : 'Context loading failed.',
+        )
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsLoadingContext(false)
+        }
+      })
+
+    return () => {
+      controller.abort()
+    }
+  }, [job, selectedRange, transcript])
 
   useEffect(() => {
     if (!job || !runningStatuses.includes(job.status)) {
@@ -331,14 +440,23 @@ function App() {
             <div className="error-banner">{errorMessage}</div>
           )}
 
-          {selectedSegment && (
+          {selectedRange && selectedSegments.length > 0 && (
             <div className="selection-panel">
-              <div className="panel-title">Selected segment</div>
+              <div className="panel-title">Context window</div>
               <p>
-                {formatTime(selectedSegment.start_seconds)} -{' '}
-                {formatTime(selectedSegment.end_seconds)}
+                {formatTime(selectedSegments[0].start_seconds)} -{' '}
+                {formatTime(
+                  selectedSegments[selectedSegments.length - 1].end_seconds,
+                )}
               </p>
-              <p>{selectedSegment.text}</p>
+              <p className="context-text">
+                {isLoadingContext
+                  ? 'Loading context'
+                  : transcriptContext?.text ||
+                    selectedSegments
+                      .map((segment) => segment.text)
+                      .join('\n')}
+              </p>
             </div>
           )}
         </div>
@@ -366,8 +484,8 @@ function App() {
             </dl>
             {job?.metadata && (
               <div className="metadata-row">
-                {job.metadata.width}x{job.metadata.height} ·{' '}
-                {formatTime(job.metadata.duration_seconds)} ·{' '}
+                {job.metadata.width}x{job.metadata.height} |{' '}
+                {formatTime(job.metadata.duration_seconds)} |{' '}
                 {job.metadata.video_codec}
               </div>
             )}
@@ -380,21 +498,31 @@ function App() {
             <h2>Transcript</h2>
             <div className="segment-list">
               {transcript?.segments.length ? (
-                transcript.segments.map((segment, index) => (
-                  <button
-                    type="button"
-                    key={`${segment.start_seconds}-${index}`}
-                    className={
-                      index === activeSegmentIndex
-                        ? 'segment active'
-                        : 'segment'
-                    }
-                    onClick={() => jumpToSegment(segment)}
-                  >
-                    <span>{formatTime(segment.start_seconds)}</span>
-                    <p>{segment.text}</p>
-                  </button>
-                ))
+                transcript.segments.map((segment, index) => {
+                  const isInSelectedRange =
+                    selectedRange !== null &&
+                    index >= selectedRange.startIndex &&
+                    index <= selectedRange.endIndex
+                  const className = [
+                    'segment',
+                    index === activeSegmentIndex ? 'active' : '',
+                    isInSelectedRange ? 'selected' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')
+
+                  return (
+                    <button
+                      type="button"
+                      key={`${segment.start_seconds}-${index}`}
+                      className={className}
+                      onClick={(event) => selectSegment(segment, index, event)}
+                    >
+                      <span>{formatTime(segment.start_seconds)}</span>
+                      <p>{segment.text}</p>
+                    </button>
+                  )
+                })
               ) : (
                 <div className="empty-list">Transcript unavailable</div>
               )}

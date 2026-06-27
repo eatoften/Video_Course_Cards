@@ -184,6 +184,10 @@ button:disabled {
   margin: 6px 0 0;
 }
 
+.context-text {
+  white-space: pre-wrap;
+}
+
 .panel-title {
   color: #697386;
   font-size: 12px;
@@ -287,6 +291,16 @@ dd {
 .segment.active {
   border-color: #4d7cfe;
   background: #eef5ff;
+}
+
+.segment.selected {
+  border-color: #79b87d;
+  background: #f0f8f1;
+}
+
+.segment.active.selected {
+  border-color: #4d7cfe;
+  background: #e8f2ff;
 }
 
 .empty-list {

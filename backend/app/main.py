@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from . import job_service
 from .db import init_db
 from .job import VideoJob, VideoJobStatus
+from .job_service import TranscriptContext
 from .transcription import FasterWhisperTranscriber, TranscriptionResult
 from .video_pipeline import VideoPipeline
 
@@ -63,6 +64,12 @@ def raise_http_error(exc: job_service.JobServiceError) -> None:
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(exc, job_service.InvalidTranscriptContextError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
 
@@ -221,5 +228,24 @@ def retry_job(
 def get_job_transcript(job_id: str) -> TranscriptionResult:
     try:
         return job_service.get_job_transcript(job_id)
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+
+
+@app.get(
+    "/jobs/{job_id}/context",
+    response_model=TranscriptContext,
+)
+def get_transcript_context(
+    job_id: str,
+    start_seconds: float,
+    end_seconds: float,
+) -> TranscriptContext:
+    try:
+        return job_service.get_transcript_context(
+            job_id,
+            start_seconds,
+            end_seconds,
+        )
     except job_service.JobServiceError as exc:
         raise_http_error(exc)

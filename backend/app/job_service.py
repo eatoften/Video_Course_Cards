@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import BinaryIO
 from uuid import uuid4
 
+from pydantic import BaseModel
+
 from .job import VideoJob, VideoJobStatus, utc_now
 from .job_store import (
     create_job,
@@ -13,7 +15,7 @@ from .job_store import (
 )
 from .media_probe import MediaProbeError, probe_video
 from .transcript_store import load_transcription
-from .transcription import TranscriptionResult
+from .transcription import TranscriptSegment, TranscriptionResult
 from .video_pipeline import VideoPipeline
 
 
@@ -60,6 +62,19 @@ class InvalidJobStatusError(JobServiceError):
 
 class TranscriptNotReadyError(JobServiceError):
     pass
+
+
+class InvalidTranscriptContextError(JobServiceError):
+    pass
+
+
+class TranscriptContext(BaseModel):
+    job_id: str
+    source_video: str
+    start_seconds: float
+    end_seconds: float
+    segments: list[TranscriptSegment]
+    text: str
 
 
 def create_video_job(
@@ -226,6 +241,50 @@ def get_job_transcript(job_id: str) -> TranscriptionResult:
         raise TranscriptNotReadyError(
             "Transcript file is missing."
         ) from exc
+
+
+def get_transcript_context(
+    job_id: str,
+    start_seconds: float,
+    end_seconds: float,
+) -> TranscriptContext:
+    if start_seconds < 0 or end_seconds < 0:
+        raise InvalidTranscriptContextError(
+            "Context times must be non-negative."
+        )
+
+    if end_seconds <= start_seconds:
+        raise InvalidTranscriptContextError(
+            "Context end must be greater than start."
+        )
+
+    job = get_video_job(job_id)
+    transcript = get_job_transcript(job_id)
+
+    context_segments = [
+        segment
+        for segment in transcript.segments
+        if (
+            segment.end_seconds > start_seconds
+            and segment.start_seconds < end_seconds
+        )
+    ]
+
+    return TranscriptContext(
+        job_id=job.id,
+        source_video=(
+            job.original_filename
+            or job.stored_name
+            or job.video_path.name
+        ),
+        start_seconds=start_seconds,
+        end_seconds=end_seconds,
+        segments=context_segments,
+        text="\n".join(
+            segment.text
+            for segment in context_segments
+        ),
+    )
 
 
 def _mark_started(job: VideoJob) -> None:
