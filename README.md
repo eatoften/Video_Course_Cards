@@ -307,6 +307,12 @@ Local video → timestamped transcript → selected concept → grounded note �
 
 Real-time system-audio capture, graph retrieval, autonomous tool use, and model fine-tuning will be added only after this workflow is reliable and measurable.
 
+## Local LLM setup
+
+The current prototype supports local knowledge-card drafting through an
+OpenAI-compatible model endpoint. See [docs/local-llm.md](docs/local-llm.md)
+for Ollama, LM Studio, and vLLM configuration.
+
 ## Non-goals for the first release
 
 - a fully autonomous multi-agent system;

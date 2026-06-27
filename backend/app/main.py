@@ -6,10 +6,12 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from . import card_service
 from . import job_service
 from .db import init_db
 from .job import VideoJob, VideoJobStatus
 from .job_service import TranscriptContext
+from .llm_client import LLMStatus, LocalLLMClient
 from .transcription import FasterWhisperTranscriber, TranscriptionResult
 from .video_pipeline import VideoPipeline
 
@@ -79,6 +81,31 @@ def raise_http_error(exc: job_service.JobServiceError) -> None:
     ) from exc
 
 
+def raise_card_http_error(exc: card_service.CardServiceError) -> None:
+    if isinstance(exc, card_service.InvalidCardDraftRequestError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(exc, card_service.CardGenerationError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(exc, card_service.CardOutputParseError):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unexpected card service error.",
+    ) from exc
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -113,9 +140,22 @@ def get_video_pipeline() -> VideoPipeline:
     )
 
 
+@cache
+def get_llm_client() -> LocalLLMClient:
+    return LocalLLMClient()
+
+
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.get(
+    "/llm/status",
+    response_model=LLMStatus,
+)
+def get_llm_status() -> LLMStatus:
+    return get_llm_client().check_status()
 
 
 @app.post("/videos/inspect")
@@ -249,3 +289,21 @@ def get_transcript_context(
         )
     except job_service.JobServiceError as exc:
         raise_http_error(exc)
+
+
+@app.post(
+    "/cards/draft",
+    response_model=card_service.CardDraftResponse,
+)
+def draft_cards(
+    request: card_service.CardDraftRequest,
+) -> card_service.CardDraftResponse:
+    try:
+        return card_service.draft_knowledge_cards(
+            request,
+            llm_client=get_llm_client(),
+        )
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+    except card_service.CardServiceError as exc:
+        raise_card_http_error(exc)

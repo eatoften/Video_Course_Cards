@@ -8,7 +8,8 @@ import {
 } from 'react'
 import './App.css'
 
-const API_BASE_URL = 'http://127.0.0.1:8000'
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 
 type JobStatus =
   | 'uploaded'
@@ -62,6 +63,35 @@ type TranscriptContext = {
   end_seconds: number
   segments: TranscriptSegment[]
   text: string
+}
+
+type LlmStatus = {
+  provider: string
+  base_url: string
+  model: string
+  available: boolean
+  error_message: string | null
+}
+
+type KnowledgeCardDraft = {
+  title: string
+  summary: string
+  key_points: string[]
+  question: string
+  answer: string
+  difficulty: 'easy' | 'medium' | 'hard'
+  source_start_seconds: number
+  source_end_seconds: number
+}
+
+type CardDraftResponse = {
+  job_id: string
+  source_video: string
+  start_seconds: number
+  end_seconds: number
+  provider: string
+  model: string
+  cards: KnowledgeCardDraft[]
 }
 
 type UploadResponse = {
@@ -134,10 +164,15 @@ function App() {
   const [selectedRange, setSelectedRange] = useState<SegmentRange | null>(null)
   const [transcriptContext, setTranscriptContext] =
     useState<TranscriptContext | null>(null)
+  const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null)
+  const [cardDraft, setCardDraft] = useState<CardDraftResponse | null>(null)
+  const [cardFocus, setCardFocus] = useState('')
   const [currentTime, setCurrentTime] = useState(0)
   const [isUploading, setIsUploading] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
   const [isLoadingContext, setIsLoadingContext] = useState(false)
+  const [isCheckingLlm, setIsCheckingLlm] = useState(false)
+  const [isDraftingCards, setIsDraftingCards] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const activeSegmentIndex = useMemo(() => {
@@ -167,6 +202,7 @@ function App() {
   function clearTranscriptSelection() {
     setSelectedRange(null)
     setTranscriptContext(null)
+    setCardDraft(null)
   }
 
   function handleVideoChange(event: ChangeEvent<HTMLInputElement>) {
@@ -204,6 +240,25 @@ function App() {
       `/jobs/${jobId}/transcript`,
     )
     setTranscript(nextTranscript)
+    setCardDraft(null)
+  }
+
+  async function checkLlmStatus() {
+    setIsCheckingLlm(true)
+
+    try {
+      const status = await fetchJson<LlmStatus>('/llm/status')
+      setLlmStatus(status)
+    } catch (error) {
+      setLlmStatus(null)
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Local model status check failed.',
+      )
+    } finally {
+      setIsCheckingLlm(false)
+    }
   }
 
   async function uploadSelectedVideo() {
@@ -265,6 +320,8 @@ function App() {
     index: number,
     event: MouseEvent<HTMLButtonElement>,
   ) {
+    setCardDraft(null)
+
     setSelectedRange((previousRange) => {
       if (event.shiftKey && previousRange) {
         return {
@@ -286,6 +343,49 @@ function App() {
       void videoRef.current.play()
     }
   }
+
+  async function generateCards() {
+    if (!job || selectedSegments.length === 0) {
+      return
+    }
+
+    const firstSegment = selectedSegments[0]
+    const lastSegment = selectedSegments[selectedSegments.length - 1]
+
+    setIsDraftingCards(true)
+    setErrorMessage(null)
+    setCardDraft(null)
+
+    try {
+      const draft = await fetchJson<CardDraftResponse>('/cards/draft', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          job_id: job.id,
+          start_seconds: firstSegment.start_seconds,
+          end_seconds: lastSegment.end_seconds,
+          card_count: 3,
+          focus: cardFocus.trim() || null,
+        }),
+      })
+
+      setCardDraft(draft)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Card generation failed.',
+      )
+    } finally {
+      setIsDraftingCards(false)
+    }
+  }
+
+  useEffect(() => {
+    void checkLlmStatus()
+  }, [])
 
   useEffect(() => {
     if (!job || !transcript || !selectedRange) {
@@ -373,6 +473,8 @@ function App() {
   const canUpload = selectedFile && !isUploading
   const canRun = job?.status === 'uploaded' && !isStarting
   const canRetry = job?.status === 'failed' && !isStarting
+  const canGenerateCards =
+    selectedSegments.length > 0 && !isDraftingCards && !isLoadingContext
 
   return (
     <main className="app-shell">
@@ -381,8 +483,23 @@ function App() {
           <h1>Video Course Cards</h1>
           <p className="subtle">Local video transcription workspace</p>
         </div>
-        <div className={`status-pill status-${job?.status ?? 'idle'}`}>
-          {job?.status ?? 'idle'}
+        <div className="top-statuses">
+          <button
+            type="button"
+            className={`llm-pill ${
+              llmStatus?.available ? 'llm-ready' : 'llm-offline'
+            }`}
+            onClick={() => void checkLlmStatus()}
+          >
+            {isCheckingLlm
+              ? 'checking model'
+              : llmStatus
+                ? `${llmStatus.model} ${llmStatus.available ? 'ready' : 'offline'}`
+                : 'model unknown'}
+          </button>
+          <div className={`status-pill status-${job?.status ?? 'idle'}`}>
+            {job?.status ?? 'idle'}
+          </div>
         </div>
       </header>
 
@@ -457,7 +574,57 @@ function App() {
                       .map((segment) => segment.text)
                       .join('\n')}
               </p>
+              <div className="card-controls">
+                <input
+                  className="focus-input"
+                  value={cardFocus}
+                  onChange={(event) => setCardFocus(event.target.value)}
+                  placeholder="Optional focus, e.g. exam review or core concept"
+                />
+                <button
+                  type="button"
+                  disabled={!canGenerateCards}
+                  onClick={() => void generateCards()}
+                >
+                  {isDraftingCards ? 'Generating' : 'Generate cards'}
+                </button>
+              </div>
             </div>
+          )}
+
+          {cardDraft && (
+            <section className="cards-panel">
+              <div className="panel-title">
+                Draft cards · {cardDraft.model}
+              </div>
+              <div className="card-list">
+                {cardDraft.cards.map((card, index) => (
+                  <article
+                    className="knowledge-card"
+                    key={`${card.title}-${index}`}
+                  >
+                    <div className="card-heading">
+                      <h3>{card.title}</h3>
+                      <span>{card.difficulty}</span>
+                    </div>
+                    <p>{card.summary}</p>
+                    <ul>
+                      {card.key_points.map((point) => (
+                        <li key={point}>{point}</li>
+                      ))}
+                    </ul>
+                    <div className="qa-block">
+                      <strong>{card.question}</strong>
+                      <p>{card.answer}</p>
+                    </div>
+                    <div className="source-range">
+                      {formatTime(card.source_start_seconds)} -{' '}
+                      {formatTime(card.source_end_seconds)}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
           )}
         </div>
 
