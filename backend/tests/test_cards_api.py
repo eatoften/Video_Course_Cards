@@ -3,7 +3,12 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.job import VideoJob, VideoJobStatus
 from app.job_store import create_job
-from app.llm_client import LLMClientError, LLMMessage, LLMStatus
+from app.llm_client import (
+    LLMClientError,
+    LLMMessage,
+    LLMModelList,
+    LLMStatus,
+)
 from app.settings import LLMSettings
 from app.transcript_store import save_transcription
 from app.transcription import TranscriptSegment, TranscriptionResult
@@ -16,6 +21,8 @@ class FakeLLMClient:
     def __init__(self, outputs: list[str] | None = None) -> None:
         self.outputs = outputs or []
         self.calls: list[list[LLMMessage]] = []
+        self.requested_models: list[str | None] = []
+        self.requested_max_tokens: list[int | None] = []
         self.settings = LLMSettings(
             provider="ollama",
             base_url="http://localhost:11434/v1",
@@ -31,14 +38,27 @@ class FakeLLMClient:
             available=True,
         )
 
+    def list_models(self) -> LLMModelList:
+        return LLMModelList(
+            provider=self.settings.provider,
+            base_url=self.settings.base_url,
+            default_model=self.settings.model,
+            models=["qwen3:4b", "qwen3:8b"],
+            available=True,
+        )
+
     def create_chat_completion(
         self,
         messages: list[LLMMessage],
         *,
+        model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        response_format: dict[str, object] | None = None,
     ) -> str:
         self.calls.append(messages)
+        self.requested_models.append(model)
+        self.requested_max_tokens.append(max_tokens)
 
         if not self.outputs:
             raise LLMClientError("No fake LLM output configured.")
@@ -109,6 +129,28 @@ def test_llm_status_returns_configured_local_model(monkeypatch):
     }
 
 
+def test_llm_models_returns_installed_models(monkeypatch):
+    fake_client = FakeLLMClient()
+
+    monkeypatch.setattr(
+        main,
+        "get_llm_client",
+        lambda: fake_client,
+    )
+
+    response = client.get("/llm/models")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "provider": "ollama",
+        "base_url": "http://localhost:11434/v1",
+        "default_model": "qwen3:4b",
+        "models": ["qwen3:4b", "qwen3:8b"],
+        "available": True,
+        "error_message": None,
+    }
+
+
 def test_draft_cards_returns_structured_cards(monkeypatch, tmp_path):
     job = create_completed_job_with_transcript(tmp_path)
     fake_client = FakeLLMClient(
@@ -147,6 +189,7 @@ def test_draft_cards_returns_structured_cards(monkeypatch, tmp_path):
             "end_seconds": 10.0,
             "card_count": 2,
             "focus": "optimization",
+            "model": "qwen3:8b",
         },
     )
 
@@ -157,7 +200,7 @@ def test_draft_cards_returns_structured_cards(monkeypatch, tmp_path):
     assert data["job_id"] == job.id
     assert data["source_video"] == "lecture.mp4"
     assert data["provider"] == "ollama"
-    assert data["model"] == "qwen3:4b"
+    assert data["model"] == "qwen3:8b"
     assert data["cards"] == [
         {
             "title": "Learning Rate",
@@ -175,6 +218,7 @@ def test_draft_cards_returns_structured_cards(monkeypatch, tmp_path):
     ]
     assert len(fake_client.calls) == 1
     assert "/no_think" in fake_client.calls[0][1].content
+    assert fake_client.requested_models == ["qwen3:8b"]
 
 
 def test_draft_cards_repairs_malformed_json(
@@ -220,6 +264,129 @@ def test_draft_cards_repairs_malformed_json(
     assert response.status_code == 200
     assert response.json()["cards"][0]["title"] == "Gradient Descent"
     assert len(fake_client.calls) == 2
+
+
+def test_draft_cards_rejects_empty_llm_content(
+    monkeypatch,
+    tmp_path,
+):
+    job = create_completed_job_with_transcript(tmp_path)
+    fake_client = FakeLLMClient(outputs=["", ""])
+
+    monkeypatch.setattr(
+        main,
+        "get_llm_client",
+        lambda: fake_client,
+    )
+
+    response = client.post(
+        "/cards/draft",
+        json={
+            "job_id": job.id,
+            "start_seconds": 0.0,
+            "end_seconds": 8.0,
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"].startswith(
+        "Local LLM returned empty content."
+    )
+    assert len(fake_client.calls) == 2
+    assert fake_client.requested_max_tokens == [8192, 16384]
+
+
+def test_draft_cards_retries_empty_content_then_succeeds(
+    monkeypatch,
+    tmp_path,
+):
+    job = create_completed_job_with_transcript(tmp_path)
+    fake_client = FakeLLMClient(
+        outputs=[
+            "",
+            """
+            {
+              "cards": [
+                {
+                  "title": "Learning Rate",
+                  "summary": "The learning rate controls update size.",
+                  "key_points": ["It affects parameter updates."],
+                  "question": "What does the learning rate control?",
+                  "answer": "It controls update size.",
+                  "difficulty": "easy"
+                }
+              ]
+            }
+            """,
+        ]
+    )
+
+    monkeypatch.setattr(
+        main,
+        "get_llm_client",
+        lambda: fake_client,
+    )
+
+    response = client.post(
+        "/cards/draft",
+        json={
+            "job_id": job.id,
+            "start_seconds": 0.0,
+            "end_seconds": 8.0,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["cards"][0]["title"] == "Learning Rate"
+    assert fake_client.requested_max_tokens == [8192, 16384]
+
+
+def test_draft_cards_rejects_ungrounded_cards(
+    monkeypatch,
+    tmp_path,
+):
+    job = create_completed_job_with_transcript(tmp_path)
+    fake_client = FakeLLMClient(
+        outputs=[
+            """
+            {
+              "cards": [
+                {
+                  "title": "Newton's Laws",
+                  "summary": "Newton's laws describe motion and forces.",
+                  "key_points": ["Force equals mass times acceleration."],
+                  "question": "What does Newton's second law state?",
+                  "answer": "Force equals mass times acceleration.",
+                  "difficulty": "easy"
+                }
+              ]
+            }
+            """
+        ]
+    )
+
+    monkeypatch.setattr(
+        main,
+        "get_llm_client",
+        lambda: fake_client,
+    )
+
+    response = client.post(
+        "/cards/draft",
+        json={
+            "job_id": job.id,
+            "start_seconds": 0.0,
+            "end_seconds": 8.0,
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": (
+            "Local LLM generated cards that were not grounded in the "
+            "selected transcript. Try a shorter window or a larger model."
+        )
+    }
 
 
 def test_draft_cards_returns_409_when_transcript_is_not_ready(

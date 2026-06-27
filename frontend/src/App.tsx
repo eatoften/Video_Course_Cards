@@ -73,6 +73,15 @@ type LlmStatus = {
   error_message: string | null
 }
 
+type LlmModelList = {
+  provider: string
+  base_url: string
+  default_model: string
+  models: string[]
+  available: boolean
+  error_message: string | null
+}
+
 type KnowledgeCardDraft = {
   title: string
   summary: string
@@ -165,6 +174,8 @@ function App() {
   const [transcriptContext, setTranscriptContext] =
     useState<TranscriptContext | null>(null)
   const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null)
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [selectedModel, setSelectedModel] = useState('')
   const [cardDraft, setCardDraft] = useState<CardDraftResponse | null>(null)
   const [cardFocus, setCardFocus] = useState('')
   const [currentTime, setCurrentTime] = useState(0)
@@ -247,10 +258,26 @@ function App() {
     setIsCheckingLlm(true)
 
     try {
-      const status = await fetchJson<LlmStatus>('/llm/status')
+      const [status, modelList] = await Promise.all([
+        fetchJson<LlmStatus>('/llm/status'),
+        fetchJson<LlmModelList>('/llm/models'),
+      ])
       setLlmStatus(status)
+      setAvailableModels(modelList.models)
+      setSelectedModel((previousModel) => {
+        if (previousModel) {
+          return previousModel
+        }
+
+        if (modelList.models.includes(status.model)) {
+          return status.model
+        }
+
+        return modelList.models[0] ?? status.model
+      })
     } catch (error) {
       setLlmStatus(null)
+      setAvailableModels([])
       setErrorMessage(
         error instanceof Error
           ? error.message
@@ -368,6 +395,7 @@ function App() {
           end_seconds: lastSegment.end_seconds,
           card_count: 3,
           focus: cardFocus.trim() || null,
+          model: selectedModel || null,
         }),
       })
 
@@ -492,11 +520,30 @@ function App() {
             onClick={() => void checkLlmStatus()}
           >
             {isCheckingLlm
-              ? 'checking model'
-              : llmStatus
-                ? `${llmStatus.model} ${llmStatus.available ? 'ready' : 'offline'}`
+                ? 'checking model'
+                : llmStatus
+                ? `${selectedModel || llmStatus.model} ${
+                    llmStatus.available ? 'ready' : 'offline'
+                  }`
                 : 'model unknown'}
           </button>
+          <select
+            className="model-select"
+            value={selectedModel}
+            onChange={(event) => setSelectedModel(event.target.value)}
+          >
+            {availableModels.length > 0 ? (
+              availableModels.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))
+            ) : (
+              <option value={selectedModel || llmStatus?.model || ''}>
+                {selectedModel || llmStatus?.model || 'No model loaded'}
+              </option>
+            )}
+          </select>
           <div className={`status-pill status-${job?.status ?? 'idle'}`}>
             {job?.status ?? 'idle'}
           </div>

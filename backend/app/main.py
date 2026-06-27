@@ -11,7 +11,7 @@ from . import job_service
 from .db import init_db
 from .job import VideoJob, VideoJobStatus
 from .job_service import TranscriptContext
-from .llm_client import LLMStatus, LocalLLMClient
+from .llm_client import LLMModelList, LLMStatus, LocalLLMClient
 from .transcription import FasterWhisperTranscriber, TranscriptionResult
 from .video_pipeline import VideoPipeline
 
@@ -121,7 +121,10 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
     ],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1):\d+",
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
@@ -156,6 +159,14 @@ def health_check():
 )
 def get_llm_status() -> LLMStatus:
     return get_llm_client().check_status()
+
+
+@app.get(
+    "/llm/models",
+    response_model=LLMModelList,
+)
+def list_llm_models() -> LLMModelList:
+    return get_llm_client().list_models()
 
 
 @app.post("/videos/inspect")

@@ -22,6 +22,15 @@ class LLMStatus(BaseModel):
     error_message: str | None = None
 
 
+class LLMModelList(BaseModel):
+    provider: str
+    base_url: str
+    default_model: str
+    models: list[str]
+    available: bool
+    error_message: str | None = None
+
+
 class LLMClientError(Exception):
     pass
 
@@ -31,6 +40,17 @@ class LocalLLMClient:
         self.settings = settings or get_llm_settings()
 
     def check_status(self) -> LLMStatus:
+        model_list = self.list_models()
+
+        return LLMStatus(
+            provider=self.settings.provider,
+            base_url=self.settings.base_url,
+            model=self.settings.model,
+            available=model_list.available,
+            error_message=model_list.error_message,
+        )
+
+    def list_models(self) -> LLMModelList:
         try:
             with httpx.Client(
                 timeout=self.settings.timeout_seconds,
@@ -40,20 +60,25 @@ class LocalLLMClient:
                     headers=self._headers(),
                 )
                 response.raise_for_status()
+                data = response.json()
 
         except (httpx.HTTPError, ValueError) as exc:
-            return LLMStatus(
+            return LLMModelList(
                 provider=self.settings.provider,
                 base_url=self.settings.base_url,
-                model=self.settings.model,
+                default_model=self.settings.model,
+                models=[],
                 available=False,
                 error_message=str(exc),
             )
 
-        return LLMStatus(
+        models = _extract_model_ids(data)
+
+        return LLMModelList(
             provider=self.settings.provider,
             base_url=self.settings.base_url,
-            model=self.settings.model,
+            default_model=self.settings.model,
+            models=models,
             available=True,
         )
 
@@ -61,11 +86,13 @@ class LocalLLMClient:
         self,
         messages: list[LLMMessage],
         *,
+        model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        response_format: dict[str, object] | None = None,
     ) -> str:
         payload = {
-            "model": self.settings.model,
+            "model": model or self.settings.model,
             "messages": [
                 message.model_dump()
                 for message in messages
@@ -82,6 +109,9 @@ class LocalLLMClient:
             ),
             "stream": False,
         }
+
+        if response_format is not None:
+            payload["response_format"] = response_format
 
         try:
             with httpx.Client(
@@ -126,3 +156,26 @@ class LocalLLMClient:
 
     def _url(self, path: str) -> str:
         return f"{self.settings.base_url.rstrip('/')}{path}"
+
+
+def _extract_model_ids(data: object) -> list[str]:
+    if not isinstance(data, dict):
+        return []
+
+    raw_models = data.get("data")
+
+    if not isinstance(raw_models, list):
+        return []
+
+    model_ids: list[str] = []
+
+    for raw_model in raw_models:
+        if not isinstance(raw_model, dict):
+            continue
+
+        model_id = raw_model.get("id")
+
+        if isinstance(model_id, str) and model_id:
+            model_ids.append(model_id)
+
+    return sorted(set(model_ids))

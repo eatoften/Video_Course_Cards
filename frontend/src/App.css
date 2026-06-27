@@ -42,6 +42,25 @@
   text-transform: lowercase;
 }
 
+.model-select {
+  height: 38px;
+  min-width: 150px;
+  max-width: 220px;
+  padding: 0 10px;
+  border: 1px solid #b9c2d0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #243044;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.model-select:focus {
+  border-color: #4d7cfe;
+  outline: 2px solid #d9e6ff;
+}
+
 .llm-ready {
   border-color: #86d39a;
   background: #ebf8ee;
@@ -436,8 +455,10 @@ dd {
 
   .top-statuses,
   .llm-pill,
+  .model-select,
   .status-pill {
     width: 100%;
+    max-width: none;
   }
 
   .workspace {

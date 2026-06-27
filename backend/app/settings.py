@@ -13,8 +13,8 @@ class LLMSettings(BaseModel):
     base_url: str = "http://localhost:11434/v1"
     model: str = "qwen3:4b"
     api_key: str = "local"
-    temperature: float = Field(default=0.2, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=2048, ge=1)
+    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=8192, ge=1)
     timeout_seconds: float = Field(default=120.0, ge=1.0)
 
 
@@ -87,12 +87,12 @@ def get_llm_settings() -> LLMSettings:
         api_key=_env("VCC_LLM_API_KEY", "local", env_file_values),
         temperature=_env_float(
             "VCC_LLM_TEMPERATURE",
-            0.2,
+            0.0,
             env_file_values,
         ),
         max_tokens=_env_int(
             "VCC_LLM_MAX_TOKENS",
-            2048,
+            8192,
             env_file_values,
         ),
         timeout_seconds=_env_float(
