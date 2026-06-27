@@ -3,14 +3,21 @@ from functools import cache
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile, status
+from fastapi import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import card_service
 from . import job_service
+from . import knowledge_card_service
 from .db import init_db
 from .job import VideoJob, VideoJobStatus
 from .job_service import TranscriptContext
+from .knowledge_card import (
+    KnowledgeCard,
+    KnowledgeCardCreate,
+    KnowledgeCardUpdate,
+)
 from .llm_client import LLMModelList, LLMStatus, LocalLLMClient
 from .transcription import FasterWhisperTranscriber, TranscriptionResult
 from .video_pipeline import VideoPipeline
@@ -106,6 +113,27 @@ def raise_card_http_error(exc: card_service.CardServiceError) -> None:
     ) from exc
 
 
+def raise_knowledge_card_http_error(
+    exc: knowledge_card_service.KnowledgeCardServiceError,
+) -> None:
+    if isinstance(exc, knowledge_card_service.KnowledgeCardNotFoundError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(exc, knowledge_card_service.InvalidKnowledgeCardError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unexpected knowledge card service error.",
+    ) from exc
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -125,7 +153,7 @@ app.add_middleware(
         "http://127.0.0.1:5174",
     ],
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1):\d+",
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -272,6 +300,19 @@ def retry_job(
     return job
 
 
+@app.delete(
+    "/jobs/{job_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_job(job_id: str) -> Response:
+    try:
+        job_service.delete_video_job(job_id, DATA_DIR)
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @app.get(
     "/jobs/{job_id}/transcript",
     response_model=TranscriptionResult,
@@ -318,3 +359,58 @@ def draft_cards(
         raise_http_error(exc)
     except card_service.CardServiceError as exc:
         raise_card_http_error(exc)
+
+
+@app.get(
+    "/jobs/{job_id}/cards",
+    response_model=list[KnowledgeCard],
+)
+def list_job_cards(job_id: str) -> list[KnowledgeCard]:
+    try:
+        return knowledge_card_service.list_job_cards(job_id)
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+
+
+@app.post(
+    "/jobs/{job_id}/cards",
+    response_model=KnowledgeCard,
+    status_code=status.HTTP_201_CREATED,
+)
+def save_job_card(
+    job_id: str,
+    request: KnowledgeCardCreate,
+) -> KnowledgeCard:
+    try:
+        return knowledge_card_service.save_job_card(job_id, request)
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+    except knowledge_card_service.KnowledgeCardServiceError as exc:
+        raise_knowledge_card_http_error(exc)
+
+
+@app.patch(
+    "/cards/{card_id}",
+    response_model=KnowledgeCard,
+)
+def update_saved_card(
+    card_id: str,
+    request: KnowledgeCardUpdate,
+) -> KnowledgeCard:
+    try:
+        return knowledge_card_service.update_saved_card(card_id, request)
+    except knowledge_card_service.KnowledgeCardServiceError as exc:
+        raise_knowledge_card_http_error(exc)
+
+
+@app.delete(
+    "/cards/{card_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_saved_card(card_id: str) -> Response:
+    try:
+        knowledge_card_service.delete_saved_card(card_id)
+    except knowledge_card_service.KnowledgeCardServiceError as exc:
+        raise_knowledge_card_http_error(exc)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

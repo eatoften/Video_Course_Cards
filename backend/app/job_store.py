@@ -176,6 +176,16 @@ def update_job(job: VideoJob) -> None:
         )
 
 
+def delete_job(job_id: str) -> None:
+    ensure_db()
+
+    with connect() as conn:
+        conn.execute(
+            "DELETE FROM jobs WHERE id = ?",
+            (job_id,),
+        )
+
+
 def clear_jobs() -> None:
     ensure_db()
 

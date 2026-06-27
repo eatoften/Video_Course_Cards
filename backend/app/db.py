@@ -91,6 +91,34 @@ def init_db() -> None:
                     f"ALTER TABLE jobs ADD COLUMN {column_name} {column_type}"
                 )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS knowledge_cards (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                key_points TEXT NOT NULL,
+                question TEXT,
+                answer TEXT,
+                difficulty TEXT NOT NULL,
+                source_start_seconds REAL NOT NULL,
+                source_end_seconds REAL NOT NULL,
+                provider TEXT,
+                model TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_knowledge_cards_job_id
+            ON knowledge_cards (job_id)
+            """
+        )
+
     _initialized_paths.add(db_path)
 
 

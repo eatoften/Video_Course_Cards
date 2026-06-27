@@ -103,6 +103,26 @@ type CardDraftResponse = {
   cards: KnowledgeCardDraft[]
 }
 
+type KnowledgeCard = Omit<KnowledgeCardDraft, 'question' | 'answer'> & {
+  id: string
+  job_id: string
+  question: string | null
+  answer: string | null
+  provider: string | null
+  model: string | null
+  created_at: string
+  updated_at: string
+}
+
+type CardEditForm = {
+  title: string
+  summary: string
+  key_points: string
+  question: string
+  answer: string
+  difficulty: KnowledgeCardDraft['difficulty']
+}
+
 type UploadResponse = {
   id: string
   filename: string
@@ -144,6 +164,10 @@ async function fetchJson<T>(
     throw new Error(message)
   }
 
+  if (response.status === 204) {
+    return undefined as T
+  }
+
   return response.json() as Promise<T>
 }
 
@@ -168,6 +192,7 @@ function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [jobs, setJobs] = useState<VideoJob[]>([])
   const [job, setJob] = useState<VideoJob | null>(null)
   const [transcript, setTranscript] = useState<TranscriptionResult | null>(null)
   const [selectedRange, setSelectedRange] = useState<SegmentRange | null>(null)
@@ -177,11 +202,17 @@ function App() {
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [selectedModel, setSelectedModel] = useState('')
   const [cardDraft, setCardDraft] = useState<CardDraftResponse | null>(null)
+  const [savedCards, setSavedCards] = useState<KnowledgeCard[]>([])
+  const [editingCardId, setEditingCardId] = useState<string | null>(null)
+  const [cardEditForm, setCardEditForm] = useState<CardEditForm | null>(null)
   const [cardFocus, setCardFocus] = useState('')
   const [currentTime, setCurrentTime] = useState(0)
   const [isUploading, setIsUploading] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
   const [isLoadingContext, setIsLoadingContext] = useState(false)
+  const [isLoadingJobs, setIsLoadingJobs] = useState(false)
+  const [isSavingCard, setIsSavingCard] = useState(false)
+  const [isDeletingJob, setIsDeletingJob] = useState(false)
   const [isCheckingLlm, setIsCheckingLlm] = useState(false)
   const [isDraftingCards, setIsDraftingCards] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -214,6 +245,8 @@ function App() {
     setSelectedRange(null)
     setTranscriptContext(null)
     setCardDraft(null)
+    setEditingCardId(null)
+    setCardEditForm(null)
   }
 
   function handleVideoChange(event: ChangeEvent<HTMLInputElement>) {
@@ -246,12 +279,101 @@ function App() {
     return nextJob
   }
 
+  async function loadJobs() {
+    setIsLoadingJobs(true)
+
+    try {
+      const nextJobs = await fetchJson<VideoJob[]>('/jobs')
+      setJobs(nextJobs)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Job list failed.',
+      )
+    } finally {
+      setIsLoadingJobs(false)
+    }
+  }
+
   async function loadTranscript(jobId: string) {
     const nextTranscript = await fetchJson<TranscriptionResult>(
       `/jobs/${jobId}/transcript`,
     )
     setTranscript(nextTranscript)
     setCardDraft(null)
+  }
+
+  async function loadSavedCards(jobId: string) {
+    const cards = await fetchJson<KnowledgeCard[]>(
+      `/jobs/${jobId}/cards`,
+    )
+    setSavedCards(cards)
+  }
+
+  async function openJob(nextJob: VideoJob) {
+    setJob(nextJob)
+    setSelectedFile(null)
+    setVideoUrl((previousUrl) => {
+      if (previousUrl) {
+        URL.revokeObjectURL(previousUrl)
+      }
+
+      return null
+    })
+    setTranscript(null)
+    setSavedCards([])
+    clearTranscriptSelection()
+    setErrorMessage(null)
+
+    try {
+      await loadSavedCards(nextJob.id)
+
+      if (nextJob.transcript_path) {
+        await loadTranscript(nextJob.id)
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Job loading failed.',
+      )
+    }
+  }
+
+  async function deleteVideoJob(jobToDelete: VideoJob) {
+    setIsDeletingJob(true)
+    setErrorMessage(null)
+
+    try {
+      await fetchJson<void>(
+        `/jobs/${jobToDelete.id}`,
+        {
+          method: 'DELETE',
+        },
+      )
+
+      setJobs((previousJobs) =>
+        previousJobs.filter((item) => item.id !== jobToDelete.id),
+      )
+
+      if (job?.id === jobToDelete.id) {
+        setJob(null)
+        setSelectedFile(null)
+        setVideoUrl((previousUrl) => {
+          if (previousUrl) {
+            URL.revokeObjectURL(previousUrl)
+          }
+
+          return null
+        })
+        setTranscript(null)
+        setSavedCards([])
+        clearTranscriptSelection()
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Video delete failed.',
+      )
+    } finally {
+      setIsDeletingJob(false)
+    }
   }
 
   async function checkLlmStatus() {
@@ -308,6 +430,8 @@ function App() {
       })
 
       await refreshJob(upload.id)
+      await loadJobs()
+      await loadSavedCards(upload.id)
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Upload failed.',
@@ -333,6 +457,7 @@ function App() {
         { method: 'POST' },
       )
       setJob(nextJob)
+      await loadJobs()
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Processing failed.',
@@ -411,8 +536,124 @@ function App() {
     }
   }
 
+  async function saveDraftCard(card: KnowledgeCardDraft) {
+    if (!job || !cardDraft) {
+      return
+    }
+
+    setIsSavingCard(true)
+    setErrorMessage(null)
+
+    try {
+      const savedCard = await fetchJson<KnowledgeCard>(
+        `/jobs/${job.id}/cards`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...card,
+            provider: cardDraft.provider,
+            model: cardDraft.model,
+          }),
+        },
+      )
+
+      setSavedCards((previousCards) => [...previousCards, savedCard])
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Card save failed.',
+      )
+    } finally {
+      setIsSavingCard(false)
+    }
+  }
+
+  function startEditingCard(card: KnowledgeCard) {
+    setEditingCardId(card.id)
+    setCardEditForm({
+      title: card.title,
+      summary: card.summary,
+      key_points: card.key_points.join('\n'),
+      question: card.question ?? '',
+      answer: card.answer ?? '',
+      difficulty: card.difficulty,
+    })
+  }
+
+  async function saveEditedCard(cardId: string) {
+    if (!cardEditForm) {
+      return
+    }
+
+    setIsSavingCard(true)
+    setErrorMessage(null)
+
+    try {
+      const updatedCard = await fetchJson<KnowledgeCard>(
+        `/cards/${cardId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: cardEditForm.title,
+            summary: cardEditForm.summary,
+            key_points: cardEditForm.key_points
+              .split('\n')
+              .map((point) => point.trim())
+              .filter(Boolean),
+            question: cardEditForm.question || null,
+            answer: cardEditForm.answer || null,
+            difficulty: cardEditForm.difficulty,
+          }),
+        },
+      )
+
+      setSavedCards((previousCards) =>
+        previousCards.map((card) =>
+          card.id === updatedCard.id ? updatedCard : card,
+        ),
+      )
+      setEditingCardId(null)
+      setCardEditForm(null)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Card update failed.',
+      )
+    } finally {
+      setIsSavingCard(false)
+    }
+  }
+
+  async function deleteSavedCard(cardId: string) {
+    setIsSavingCard(true)
+    setErrorMessage(null)
+
+    try {
+      await fetchJson<void>(
+        `/cards/${cardId}`,
+        {
+          method: 'DELETE',
+        },
+      )
+      setSavedCards((previousCards) =>
+        previousCards.filter((card) => card.id !== cardId),
+      )
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Card delete failed.',
+      )
+    } finally {
+      setIsSavingCard(false)
+    }
+  }
+
   useEffect(() => {
     void checkLlmStatus()
+    void loadJobs()
   }, [])
 
   useEffect(() => {
@@ -475,6 +716,8 @@ function App() {
       void refreshJob(job.id)
         .then((nextJob) => {
           if (nextJob.status === 'completed') {
+            void loadJobs()
+            void loadSavedCards(nextJob.id)
             return loadTranscript(nextJob.id)
           }
 
@@ -668,14 +911,202 @@ function App() {
                       {formatTime(card.source_start_seconds)} -{' '}
                       {formatTime(card.source_end_seconds)}
                     </div>
+                    <div className="card-actions">
+                      <button
+                        type="button"
+                        disabled={isSavingCard}
+                        onClick={() => void saveDraftCard(card)}
+                      >
+                        Save
+                      </button>
+                    </div>
                   </article>
                 ))}
               </div>
             </section>
           )}
+
+          <section className="cards-panel">
+            <div className="panel-title">Saved cards</div>
+            <div className="card-list">
+              {savedCards.length ? (
+                savedCards.map((card) => {
+                  const isEditing = editingCardId === card.id
+
+                  return (
+                    <article className="knowledge-card" key={card.id}>
+                      {isEditing && cardEditForm ? (
+                        <div className="edit-card-form">
+                          <input
+                            value={cardEditForm.title}
+                            onChange={(event) =>
+                              setCardEditForm({
+                                ...cardEditForm,
+                                title: event.target.value,
+                              })
+                            }
+                          />
+                          <textarea
+                            value={cardEditForm.summary}
+                            onChange={(event) =>
+                              setCardEditForm({
+                                ...cardEditForm,
+                                summary: event.target.value,
+                              })
+                            }
+                          />
+                          <textarea
+                            value={cardEditForm.key_points}
+                            onChange={(event) =>
+                              setCardEditForm({
+                                ...cardEditForm,
+                                key_points: event.target.value,
+                              })
+                            }
+                          />
+                          <input
+                            value={cardEditForm.question}
+                            onChange={(event) =>
+                              setCardEditForm({
+                                ...cardEditForm,
+                                question: event.target.value,
+                              })
+                            }
+                          />
+                          <input
+                            value={cardEditForm.answer}
+                            onChange={(event) =>
+                              setCardEditForm({
+                                ...cardEditForm,
+                                answer: event.target.value,
+                              })
+                            }
+                          />
+                          <select
+                            value={cardEditForm.difficulty}
+                            onChange={(event) =>
+                              setCardEditForm({
+                                ...cardEditForm,
+                                difficulty: event.target.value as
+                                  KnowledgeCardDraft['difficulty'],
+                              })
+                            }
+                          >
+                            <option value="easy">easy</option>
+                            <option value="medium">medium</option>
+                            <option value="hard">hard</option>
+                          </select>
+                          <div className="card-actions">
+                            <button
+                              type="button"
+                              disabled={isSavingCard}
+                              onClick={() => void saveEditedCard(card.id)}
+                            >
+                              Save edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingCardId(null)
+                                setCardEditForm(null)
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="card-heading">
+                            <h3>{card.title}</h3>
+                            <span>{card.difficulty}</span>
+                          </div>
+                          <p>{card.summary}</p>
+                          <ul>
+                            {card.key_points.map((point) => (
+                              <li key={point}>{point}</li>
+                            ))}
+                          </ul>
+                          {(card.question || card.answer) && (
+                            <div className="qa-block">
+                              {card.question && <strong>{card.question}</strong>}
+                              {card.answer && <p>{card.answer}</p>}
+                            </div>
+                          )}
+                          <div className="source-range">
+                            {formatTime(card.source_start_seconds)} -{' '}
+                            {formatTime(card.source_end_seconds)}
+                          </div>
+                          <div className="card-actions">
+                            <button
+                              type="button"
+                              onClick={() => startEditingCard(card)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSavingCard}
+                              onClick={() => void deleteSavedCard(card.id)}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </article>
+                  )
+                })
+              ) : (
+                <div className="empty-list">No saved cards</div>
+              )}
+            </div>
+          </section>
         </div>
 
         <aside className="side-pane">
+          <section className="jobs-panel">
+            <div className="panel-heading-row">
+              <h2>Videos</h2>
+              <button type="button" onClick={() => void loadJobs()}>
+                {isLoadingJobs ? 'Loading' : 'Refresh'}
+              </button>
+            </div>
+            <div className="job-list">
+              {jobs.length ? (
+                jobs.map((item) => (
+                  <div
+                    key={item.id}
+                    className={[
+                      'job-list-row',
+                      item.id === job?.id ? 'selected' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    <button
+                      type="button"
+                      className="job-list-item"
+                      onClick={() => void openJob(item)}
+                    >
+                      <span>{item.original_filename ?? item.stored_name ?? item.id}</span>
+                      <small>{item.status}</small>
+                    </button>
+                    <button
+                      type="button"
+                      className="danger-button"
+                      disabled={isDeletingJob}
+                      onClick={() => void deleteVideoJob(item)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="empty-list">No uploaded videos</div>
+              )}
+            </div>
+          </section>
           <section className="job-panel">
             <h2>Job</h2>
             <dl>

@@ -9,10 +9,12 @@ from pydantic import BaseModel
 from .job import VideoJob, VideoJobStatus, utc_now
 from .job_store import (
     create_job,
+    delete_job,
     get_job,
     list_jobs,
     update_job,
 )
+from .knowledge_card_store import delete_cards_for_job
 from .media_probe import MediaProbeError, probe_video
 from .transcript_store import load_transcription
 from .transcription import TranscriptSegment, TranscriptionResult
@@ -184,6 +186,26 @@ def retry_job(job_id: str) -> VideoJob:
     return job
 
 
+def delete_video_job(
+    job_id: str,
+    artifact_root: Path,
+) -> None:
+    job = get_video_job(job_id)
+
+    delete_cards_for_job(job.id)
+    delete_job(job.id)
+
+    _unlink_artifact(job.video_path, artifact_root)
+
+    if job.transcript_path is not None:
+        _unlink_artifact(job.transcript_path, artifact_root)
+
+    _unlink_artifact(
+        artifact_root / "audio" / f"{job.video_path.stem}.wav",
+        artifact_root,
+    )
+
+
 def run_job_pipeline(
     job_id: str,
     get_pipeline: Callable[[], VideoPipeline],
@@ -295,3 +317,20 @@ def _mark_started(job: VideoJob) -> None:
     job.started_at = now
     job.completed_at = None
     job.updated_at = now
+
+
+def _unlink_artifact(path: Path, artifact_root: Path) -> None:
+    try:
+        resolved_path = path.resolve()
+        resolved_root = artifact_root.resolve()
+    except OSError:
+        return
+
+    if (
+        resolved_path != resolved_root
+        and resolved_root not in resolved_path.parents
+    ):
+        return
+
+    if resolved_path.is_file():
+        resolved_path.unlink(missing_ok=True)
