@@ -12,6 +12,16 @@ DEFAULT_DB_PATH = (
 _db_path = DEFAULT_DB_PATH
 _initialized_paths: set[Path] = set()
 
+JOB_COLUMNS: dict[str, str] = {
+    "original_filename": "TEXT",
+    "stored_name": "TEXT",
+    "size_bytes": "INTEGER",
+    "created_at": "TEXT",
+    "updated_at": "TEXT",
+    "started_at": "TEXT",
+    "completed_at": "TEXT",
+}
+
 
 def configure_db(db_path: Path) -> None:
     global _db_path
@@ -56,12 +66,30 @@ def init_db() -> None:
                 id TEXT PRIMARY KEY,
                 video_path TEXT NOT NULL,
                 status TEXT NOT NULL,
+                original_filename TEXT,
+                stored_name TEXT,
+                size_bytes INTEGER,
                 metadata TEXT,
                 transcript_path TEXT,
-                error_message TEXT
+                error_message TEXT,
+                created_at TEXT,
+                updated_at TEXT,
+                started_at TEXT,
+                completed_at TEXT
             )
             """
         )
+
+        existing_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(jobs)")
+        }
+
+        for column_name, column_type in JOB_COLUMNS.items():
+            if column_name not in existing_columns:
+                conn.execute(
+                    f"ALTER TABLE jobs ADD COLUMN {column_name} {column_type}"
+                )
 
     _initialized_paths.add(db_path)
 

@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 import app.main as main
+import app.job_service as job_service
 
 
 client = TestClient(main.app)
@@ -25,11 +26,7 @@ def test_upload_video_saves_file(tmp_path, monkeypatch):
         assert file_path.exists()
         return {"streams": [{"codec_type": "video"}]}
 
-    monkeypatch.setattr(
-        main,
-        "probe_video",
-        fake_probe_video,
-    )
+    monkeypatch.setattr(job_service, "probe_video", fake_probe_video)
 
     video_content = b"fake video content"
     files = {
@@ -55,13 +52,9 @@ def test_upload_rejects_invalid_video_content(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "UPLOAD_DIR", tmp_path)
 
     def fake_probe_video(file_path):
-        raise main.MediaProbeError("moov atom not found")
+        raise job_service.MediaProbeError("moov atom not found")
 
-    monkeypatch.setattr(
-        main,
-        "probe_video",
-        fake_probe_video,
-    )
+    monkeypatch.setattr(job_service, "probe_video", fake_probe_video)
 
     files = {
         "video": (

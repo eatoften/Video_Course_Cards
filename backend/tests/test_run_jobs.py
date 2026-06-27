@@ -103,6 +103,9 @@ def test_run_job_completes_uploaded_job(
     assert stored_job.status == VideoJobStatus.completed
     assert stored_job.metadata == metadata
     assert stored_job.transcript_path == transcript_path
+    assert stored_job.started_at is not None
+    assert stored_job.completed_at is not None
+    assert stored_job.updated_at >= stored_job.started_at
 
 
 def test_run_job_returns_404_for_missing_job():
@@ -190,3 +193,83 @@ def test_run_job_marks_job_failed_when_pipeline_fails(
         stored_job.error_message
         == "Whisper inference failed"
     )
+    assert stored_job.completed_at is not None
+
+
+def test_retry_job_completes_failed_job(
+    monkeypatch,
+    tmp_path,
+):
+    job = create_job(
+        tmp_path,
+        status=VideoJobStatus.failed,
+    )
+
+    metadata = VideoMetadata(
+        duration_seconds=10.0,
+        width=1280,
+        height=720,
+        video_codec="h264",
+        has_audio=True,
+    )
+    transcript_path = tmp_path / "retry-transcript.json"
+
+    class FakePipeline:
+        def process(
+            self,
+            video_path,
+            artifact_root,
+            job,
+            on_job_update=None,
+        ):
+            job.metadata = metadata
+            job.transcript_path = transcript_path
+            job.status = VideoJobStatus.completed
+
+    monkeypatch.setattr(
+        main,
+        "get_video_pipeline",
+        lambda: FakePipeline(),
+    )
+
+    response = client.post(
+        f"/jobs/{job.id}/retry"
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "probing"
+
+    stored_job = get_job(job.id)
+
+    assert stored_job is not None
+    assert stored_job.status == VideoJobStatus.completed
+    assert stored_job.error_message is None
+    assert stored_job.metadata == metadata
+    assert stored_job.transcript_path == transcript_path
+
+
+def test_retry_job_returns_409_when_job_is_not_failed(
+    monkeypatch,
+    tmp_path,
+):
+    job = create_job(tmp_path)
+
+    def fail_if_pipeline_is_requested():
+        raise AssertionError(
+            "Pipeline must not load for a non-failed job"
+        )
+
+    monkeypatch.setattr(
+        main,
+        "get_video_pipeline",
+        fail_if_pipeline_is_requested,
+    )
+
+    response = client.post(
+        f"/jobs/{job.id}/retry"
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Job cannot retry from status: uploaded"
+    }

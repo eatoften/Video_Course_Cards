@@ -1,9 +1,14 @@
+from datetime import datetime, timezone
 from enum import Enum
-
-from pydantic import BaseModel
 from pathlib import Path
 
+from pydantic import BaseModel, Field
+
 from .media_metadata import VideoMetadata
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class VideoJobStatus(str, Enum):
@@ -14,10 +19,18 @@ class VideoJobStatus(str, Enum):
     completed = "completed"
     failed = "failed"
 
+
 class VideoJob(BaseModel):
     id: str
     video_path: Path
     status: VideoJobStatus
+    original_filename: str | None = None
+    stored_name: str | None = None
+    size_bytes: int | None = None
     metadata: VideoMetadata | None = None
     transcript_path: Path | None = None
     error_message: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None

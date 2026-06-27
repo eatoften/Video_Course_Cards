@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 import app.main as main
+import app.job_service as job_service
 from app.job import (
     VideoJob,
     VideoJobStatus,
@@ -30,11 +31,7 @@ def test_upload_video_creates_job(monkeypatch, tmp_path):
             "format": {},
         }
 
-    monkeypatch.setattr(
-        main,
-        "probe_video",
-        fake_probe_video,
-    )
+    monkeypatch.setattr(job_service, "probe_video", fake_probe_video)
 
     video_content = b"fake video content"
 
@@ -63,10 +60,15 @@ def test_upload_video_creates_job(monkeypatch, tmp_path):
     assert job is not None
     assert job.id == job_id
     assert job.status == VideoJobStatus.uploaded
+    assert job.original_filename == "lecture.mp4"
+    assert job.stored_name == data["stored_name"]
+    assert job.size_bytes == len(video_content)
     assert job.video_path == (
         tmp_path / data["stored_name"]
     )
     assert job.metadata is None
+    assert job.created_at is not None
+    assert job.updated_at is not None
 
 
 
@@ -94,6 +96,33 @@ def test_get_job_returns_stored_job(tmp_path):
     assert data["video_path"] == str(video_path)
     assert data["status"] == "uploaded"
     assert data["metadata"] is None
+
+
+def test_list_jobs_returns_stored_jobs(tmp_path):
+    first_job = VideoJob(
+        id="job-1",
+        video_path=tmp_path / "first.mp4",
+        status=VideoJobStatus.uploaded,
+    )
+    second_job = VideoJob(
+        id="job-2",
+        video_path=tmp_path / "second.mp4",
+        status=VideoJobStatus.failed,
+    )
+
+    create_job(first_job)
+    create_job(second_job)
+
+    response = client.get("/jobs")
+
+    assert response.status_code == 200
+
+    job_ids = {
+        item["id"]
+        for item in response.json()
+    }
+
+    assert job_ids == {"job-1", "job-2"}
 
 
 
