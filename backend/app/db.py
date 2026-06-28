@@ -22,6 +22,25 @@ JOB_COLUMNS: dict[str, str] = {
     "completed_at": "TEXT",
 }
 
+KNOWLEDGE_CARD_COLUMNS = {
+    "id",
+    "job_id",
+    "title",
+    "summary",
+    "key_points",
+    "claims",
+    "unsupported_terms",
+    "question",
+    "answer",
+    "difficulty",
+    "source_start_seconds",
+    "source_end_seconds",
+    "provider",
+    "model",
+    "created_at",
+    "updated_at",
+}
+
 
 def configure_db(db_path: Path) -> None:
     global _db_path
@@ -91,6 +110,17 @@ def init_db() -> None:
                     f"ALTER TABLE jobs ADD COLUMN {column_name} {column_type}"
                 )
 
+        existing_card_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(knowledge_cards)")
+        }
+
+        if (
+            existing_card_columns
+            and not KNOWLEDGE_CARD_COLUMNS.issubset(existing_card_columns)
+        ):
+            conn.execute("DROP TABLE knowledge_cards")
+
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS knowledge_cards (
@@ -99,6 +129,8 @@ def init_db() -> None:
                 title TEXT NOT NULL,
                 summary TEXT NOT NULL,
                 key_points TEXT NOT NULL,
+                claims TEXT NOT NULL,
+                unsupported_terms TEXT NOT NULL,
                 question TEXT,
                 answer TEXT,
                 difficulty TEXT NOT NULL,

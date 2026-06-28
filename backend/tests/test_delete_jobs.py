@@ -42,6 +42,18 @@ def test_delete_job_removes_job_cards_and_artifacts(
             job_id=job.id,
             title="Linear Algebra",
             summary="A saved card.",
+            claims=[
+                {
+                    "text": "Linear algebra is important.",
+                    "evidence": [
+                        {
+                            "quote": "Linear algebra is important.",
+                            "segment_start_seconds": 0.0,
+                            "segment_end_seconds": 5.0,
+                        }
+                    ],
+                }
+            ],
             source_start_seconds=0.0,
             source_end_seconds=5.0,
         )

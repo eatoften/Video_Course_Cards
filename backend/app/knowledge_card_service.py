@@ -4,7 +4,9 @@ from .job import utc_now
 from .job_service import get_video_job
 from .knowledge_card import (
     KnowledgeCard,
+    KnowledgeCardClaim,
     KnowledgeCardCreate,
+    KnowledgeCardEvidence,
     KnowledgeCardUpdate,
 )
 from .knowledge_card_store import (
@@ -51,6 +53,8 @@ def save_job_card(
         title=request.title.strip(),
         summary=request.summary.strip(),
         key_points=_clean_key_points(request.key_points),
+        claims=_clean_claims(request.claims),
+        unsupported_terms=_clean_terms(request.unsupported_terms),
         question=_clean_optional_text(request.question),
         answer=_clean_optional_text(request.answer),
         difficulty=request.difficulty,
@@ -86,6 +90,15 @@ def update_saved_card(
 
     if "key_points" in update_data and request.key_points is not None:
         card.key_points = _clean_key_points(request.key_points)
+
+    if "claims" in update_data and request.claims is not None:
+        card.claims = _clean_claims(request.claims)
+
+    if (
+        "unsupported_terms" in update_data
+        and request.unsupported_terms is not None
+    ):
+        card.unsupported_terms = _clean_terms(request.unsupported_terms)
 
     if "question" in update_data:
         card.question = _clean_optional_text(request.question)
@@ -150,6 +163,68 @@ def _clean_key_points(key_points: list[str]) -> list[str]:
         for point in key_points
         if point.strip()
     ]
+
+
+def _clean_claims(
+    claims: list[KnowledgeCardClaim],
+) -> list[KnowledgeCardClaim]:
+    cleaned_claims: list[KnowledgeCardClaim] = []
+
+    for claim in claims:
+        text = claim.text.strip()
+        evidence = _clean_evidence(claim.evidence)
+
+        if text and evidence:
+            cleaned_claims.append(
+                KnowledgeCardClaim(
+                    text=text,
+                    evidence=evidence,
+                )
+            )
+
+    if not cleaned_claims:
+        raise InvalidKnowledgeCardError(
+            "Knowledge card must include at least one grounded claim."
+        )
+
+    return cleaned_claims
+
+
+def _clean_evidence(
+    evidence_items: list[KnowledgeCardEvidence],
+) -> list[KnowledgeCardEvidence]:
+    cleaned_evidence: list[KnowledgeCardEvidence] = []
+
+    for evidence in evidence_items:
+        if evidence.segment_end_seconds <= evidence.segment_start_seconds:
+            raise InvalidKnowledgeCardError(
+                "Evidence source end must be greater than start."
+            )
+
+        quote = evidence.quote.strip()
+
+        if quote:
+            cleaned_evidence.append(
+                KnowledgeCardEvidence(
+                    quote=quote,
+                    segment_start_seconds=evidence.segment_start_seconds,
+                    segment_end_seconds=evidence.segment_end_seconds,
+                )
+            )
+
+    return cleaned_evidence
+
+
+def _clean_terms(terms: list[str]) -> list[str]:
+    cleaned_terms: list[str] = []
+
+    for term in terms:
+        stripped = term.strip()
+
+        if stripped and stripped not in cleaned_terms:
+            cleaned_terms.append(stripped)
+
+    return cleaned_terms
 
 
 def _clean_optional_text(value: str | None) -> str | None:

@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlite3 import Row
 
 from .db import connect, ensure_db
-from .knowledge_card import KnowledgeCard
+from .knowledge_card import KnowledgeCard, KnowledgeCardClaim
 
 
 def _datetime_to_text(value: datetime) -> str:
@@ -16,6 +16,20 @@ def _datetime_from_text(value: str) -> datetime:
 
 def _key_points_to_json(card: KnowledgeCard) -> str:
     return json.dumps(card.key_points, ensure_ascii=False)
+
+
+def _claims_to_json(card: KnowledgeCard) -> str:
+    return json.dumps(
+        [
+            claim.model_dump(mode="json")
+            for claim in card.claims
+        ],
+        ensure_ascii=False,
+    )
+
+
+def _unsupported_terms_to_json(card: KnowledgeCard) -> str:
+    return json.dumps(card.unsupported_terms, ensure_ascii=False)
 
 
 def _key_points_from_json(value: str) -> list[str]:
@@ -31,6 +45,32 @@ def _key_points_from_json(value: str) -> list[str]:
     ]
 
 
+def _claims_from_json(value: str) -> list[KnowledgeCardClaim]:
+    raw_claims = json.loads(value)
+
+    if not isinstance(raw_claims, list):
+        return []
+
+    return [
+        KnowledgeCardClaim.model_validate(claim)
+        for claim in raw_claims
+        if isinstance(claim, dict)
+    ]
+
+
+def _unsupported_terms_from_json(value: str) -> list[str]:
+    raw_terms = json.loads(value)
+
+    if not isinstance(raw_terms, list):
+        return []
+
+    return [
+        str(term).strip()
+        for term in raw_terms
+        if str(term).strip()
+    ]
+
+
 def _row_to_card(row: Row) -> KnowledgeCard:
     return KnowledgeCard(
         id=row["id"],
@@ -38,6 +78,10 @@ def _row_to_card(row: Row) -> KnowledgeCard:
         title=row["title"],
         summary=row["summary"],
         key_points=_key_points_from_json(row["key_points"]),
+        claims=_claims_from_json(row["claims"]),
+        unsupported_terms=_unsupported_terms_from_json(
+            row["unsupported_terms"]
+        ),
         question=row["question"],
         answer=row["answer"],
         difficulty=row["difficulty"],
@@ -62,6 +106,8 @@ def create_card(card: KnowledgeCard) -> None:
                 title,
                 summary,
                 key_points,
+                claims,
+                unsupported_terms,
                 question,
                 answer,
                 difficulty,
@@ -71,7 +117,7 @@ def create_card(card: KnowledgeCard) -> None:
                 model,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 card.id,
@@ -79,6 +125,8 @@ def create_card(card: KnowledgeCard) -> None:
                 card.title,
                 card.summary,
                 _key_points_to_json(card),
+                _claims_to_json(card),
+                _unsupported_terms_to_json(card),
                 card.question,
                 card.answer,
                 card.difficulty,
@@ -133,6 +181,8 @@ def update_card(card: KnowledgeCard) -> None:
             SET title = ?,
                 summary = ?,
                 key_points = ?,
+                claims = ?,
+                unsupported_terms = ?,
                 question = ?,
                 answer = ?,
                 difficulty = ?,
@@ -147,6 +197,8 @@ def update_card(card: KnowledgeCard) -> None:
                 card.title,
                 card.summary,
                 _key_points_to_json(card),
+                _claims_to_json(card),
+                _unsupported_terms_to_json(card),
                 card.question,
                 card.answer,
                 card.difficulty,

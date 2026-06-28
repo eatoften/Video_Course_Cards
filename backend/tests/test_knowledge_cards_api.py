@@ -1,11 +1,80 @@
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.db import configure_db, connect, init_db
 from app.job import VideoJob, VideoJobStatus
 from app.job_store import create_job
 
 
 client = TestClient(main.app)
+
+
+def test_init_db_drops_legacy_cards_without_claims(tmp_path):
+    db_path = tmp_path / "legacy.db"
+    configure_db(db_path)
+
+    with connect() as conn:
+        conn.execute(
+            """
+            CREATE TABLE knowledge_cards (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                key_points TEXT NOT NULL,
+                question TEXT,
+                answer TEXT,
+                difficulty TEXT NOT NULL,
+                source_start_seconds REAL NOT NULL,
+                source_end_seconds REAL NOT NULL,
+                provider TEXT,
+                model TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO knowledge_cards (
+                id,
+                job_id,
+                title,
+                summary,
+                key_points,
+                difficulty,
+                source_start_seconds,
+                source_end_seconds,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-card",
+                "job-123",
+                "Old Card",
+                "No claims.",
+                "[]",
+                "easy",
+                0.0,
+                1.0,
+                "2026-06-01T00:00:00",
+                "2026-06-01T00:00:00",
+            ),
+        )
+
+    init_db()
+
+    with connect() as conn:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(knowledge_cards)")
+        }
+        rows = conn.execute("SELECT * FROM knowledge_cards").fetchall()
+
+    assert "claims" in columns
+    assert "unsupported_terms" in columns
+    assert rows == []
 
 
 def create_uploaded_job(tmp_path, job_id: str = "job-123") -> VideoJob:
@@ -28,6 +97,21 @@ def card_payload() -> dict:
             "Symmetric matrices",
             "Orthogonal matrices",
         ],
+        "claims": [
+            {
+                "text": (
+                    "Linear algebra is one of the course's core subjects."
+                ),
+                "evidence": [
+                    {
+                        "quote": "The first big subject is linear algebra.",
+                        "segment_start_seconds": 36.44,
+                        "segment_end_seconds": 44.0,
+                    }
+                ],
+            }
+        ],
+        "unsupported_terms": [],
         "question": "What is the first big subject?",
         "answer": "Linear algebra.",
         "difficulty": "easy",
@@ -57,6 +141,8 @@ def test_save_and_list_job_cards(tmp_path):
         "Symmetric matrices",
         "Orthogonal matrices",
     ]
+    assert created_card["claims"] == card_payload()["claims"]
+    assert created_card["unsupported_terms"] == []
     assert created_card["created_at"]
     assert created_card["updated_at"]
 
@@ -104,6 +190,7 @@ def test_update_saved_card(tmp_path):
         "Matrix factorization",
         "Orthogonal matrices",
     ]
+    assert updated_card["claims"] == created_card["claims"]
     assert updated_card["difficulty"] == "medium"
     assert updated_card["updated_at"] >= created_card["updated_at"]
 
@@ -154,6 +241,35 @@ def test_save_card_returns_400_for_invalid_time_range(tmp_path):
     assert response.status_code == 400
     assert response.json() == {
         "detail": "Card source end must be greater than start."
+    }
+
+
+def test_save_card_requires_grounded_claim(tmp_path):
+    job = create_uploaded_job(tmp_path)
+    payload = card_payload()
+    payload["claims"] = [
+        {
+            "text": "   ",
+            "evidence": [
+                {
+                    "quote": "   ",
+                    "segment_start_seconds": 1.0,
+                    "segment_end_seconds": 2.0,
+                }
+            ],
+        }
+    ]
+
+    response = client.post(
+        f"/jobs/{job.id}/cards",
+        json=payload,
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": (
+            "Knowledge card must include at least one grounded claim."
+        )
     }
 
 

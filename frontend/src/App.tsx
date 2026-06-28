@@ -82,10 +82,23 @@ type LlmModelList = {
   error_message: string | null
 }
 
+type KnowledgeCardEvidence = {
+  quote: string
+  segment_start_seconds: number
+  segment_end_seconds: number
+}
+
+type KnowledgeCardClaim = {
+  text: string
+  evidence: KnowledgeCardEvidence[]
+}
+
 type KnowledgeCardDraft = {
   title: string
   summary: string
   key_points: string[]
+  claims: KnowledgeCardClaim[]
+  unsupported_terms: string[]
   question: string
   answer: string
   difficulty: 'easy' | 'medium' | 'hard'
@@ -186,6 +199,44 @@ function formatSize(bytes: number | null): string {
 
   const megabytes = bytes / 1024 / 1024
   return `${megabytes.toFixed(1)} MB`
+}
+
+function ClaimsBlock({
+  claims,
+  unsupportedTerms,
+}: {
+  claims: KnowledgeCardClaim[]
+  unsupportedTerms: string[]
+}) {
+  return (
+    <div className="claims-block">
+      <div className="claims-title">Claims</div>
+      {claims.map((claim, claimIndex) => (
+        <div
+          className="claim-item"
+          key={`${claim.text}-${claimIndex}`}
+        >
+          <p>{claim.text}</p>
+          {claim.evidence.map((evidence, evidenceIndex) => (
+            <blockquote
+              key={`${evidence.quote}-${evidenceIndex}`}
+            >
+              <span>
+                {formatTime(evidence.segment_start_seconds)} -{' '}
+                {formatTime(evidence.segment_end_seconds)}
+              </span>
+              {evidence.quote}
+            </blockquote>
+          ))}
+        </div>
+      ))}
+      {unsupportedTerms.length > 0 && (
+        <div className="unsupported-terms">
+          Review terms: {unsupportedTerms.join(', ')}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function App() {
@@ -885,7 +936,7 @@ function App() {
           {cardDraft && (
             <section className="cards-panel">
               <div className="panel-title">
-                Draft cards · {cardDraft.model}
+                Draft cards - {cardDraft.model}
               </div>
               <div className="card-list">
                 {cardDraft.cards.map((card, index) => (
@@ -903,6 +954,10 @@ function App() {
                         <li key={point}>{point}</li>
                       ))}
                     </ul>
+                    <ClaimsBlock
+                      claims={card.claims}
+                      unsupportedTerms={card.unsupported_terms}
+                    />
                     <div className="qa-block">
                       <strong>{card.question}</strong>
                       <p>{card.answer}</p>
@@ -1027,6 +1082,10 @@ function App() {
                               <li key={point}>{point}</li>
                             ))}
                           </ul>
+                          <ClaimsBlock
+                            claims={card.claims}
+                            unsupportedTerms={card.unsupported_terms}
+                          />
                           {(card.question || card.answer) && (
                             <div className="qa-block">
                               {card.question && <strong>{card.question}</strong>}

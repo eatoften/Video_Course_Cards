@@ -6,6 +6,7 @@ from typing import Literal, Protocol
 from pydantic import BaseModel, Field, ValidationError
 
 from . import job_service
+from .knowledge_card import KnowledgeCardClaim, KnowledgeCardEvidence
 from .llm_client import LLMClientError, LLMMessage
 from .settings import LLMSettings
 
@@ -100,6 +101,8 @@ class KnowledgeCardDraft(BaseModel):
     title: str
     summary: str
     key_points: list[str] = Field(default_factory=list)
+    claims: list[KnowledgeCardClaim] = Field(min_length=1)
+    unsupported_terms: list[str] = Field(default_factory=list)
     question: str
     answer: str
     difficulty: Difficulty = "medium"
@@ -117,10 +120,16 @@ class CardDraftResponse(BaseModel):
     cards: list[KnowledgeCardDraft]
 
 
+class _LLMCardClaim(BaseModel):
+    text: str
+    evidence_quotes: list[str] = Field(default_factory=list)
+
+
 class _LLMKnowledgeCard(BaseModel):
     title: str
     summary: str
     key_points: list[str] = Field(default_factory=list)
+    claims: list[_LLMCardClaim] = Field(default_factory=list)
     question: str
     answer: str
     difficulty: Difficulty = "medium"
@@ -176,24 +185,11 @@ def draft_knowledge_cards(
         )
         payload = _parse_card_payload(repaired_output)
 
-    cards = [
-        KnowledgeCardDraft(
-            title=card.title.strip(),
-            summary=card.summary.strip(),
-            key_points=[
-                point.strip()
-                for point in card.key_points
-                if point.strip()
-            ],
-            question=card.question.strip(),
-            answer=card.answer.strip(),
-            difficulty=card.difficulty,
-            source_start_seconds=context.start_seconds,
-            source_end_seconds=context.end_seconds,
-        )
-        for card in payload.cards[: request.card_count]
-    ]
-    cards = _filter_grounded_cards(cards, context.text)
+    cards = _build_grounded_cards(
+        payload.cards,
+        context,
+        limit=request.card_count,
+    )
 
     if not cards:
         raise CardGenerationError(
@@ -288,9 +284,12 @@ Rules:
 5. Use the same language as the transcript unless the user focus asks otherwise.
 6. Every card must be grounded only in the provided transcript.
 7. Do not invent facts outside the transcript.
-8. Each title, summary, question, and answer must use concepts that appear in
-   the transcript evidence.
-9. If the transcript does not contain enough evidence, return {"cards": []}.
+8. Every card must include at least one claim.
+9. Every claim must include evidence_quotes copied exactly from one transcript
+   line, without timestamps.
+10. Each title, summary, question, and answer must use concepts that appear in
+    the transcript evidence.
+11. If the transcript does not contain enough evidence, return {"cards": []}.
 """.strip()
 
     user_prompt = f"""
@@ -310,7 +309,7 @@ User focus:
 
 Transcript evidence:
 <<<TRANSCRIPT
-{context.text}
+{_format_transcript_evidence(context.segments)}
 TRANSCRIPT>>>
 
 Return exactly this JSON shape:
@@ -320,6 +319,12 @@ Return exactly this JSON shape:
       "title": "short concept title",
       "summary": "clear explanation grounded in the transcript",
       "key_points": ["important point 1", "important point 2"],
+      "claims": [
+        {{
+          "text": "one atomic factual claim",
+          "evidence_quotes": ["exact phrase copied from one transcript line"]
+        }}
+      ],
       "question": "active recall question",
       "answer": "short reference answer",
       "difficulty": "easy"
@@ -332,6 +337,18 @@ Return exactly this JSON shape:
         LLMMessage(role="system", content=system_prompt),
         LLMMessage(role="user", content=user_prompt),
     ]
+
+
+def _format_transcript_evidence(
+    segments: list[job_service.TranscriptSegment],
+) -> str:
+    return "\n".join(
+        (
+            f"[{segment.start_seconds:.2f}-{segment.end_seconds:.2f}] "
+            f"{segment.text}"
+        )
+        for segment in segments
+    )
 
 
 def _build_repair_messages(raw_output: str) -> list[LLMMessage]:
@@ -350,6 +367,12 @@ The following output should have been valid JSON with this shape:
       "title": "short concept title",
       "summary": "clear explanation",
       "key_points": ["point"],
+      "claims": [
+        {{
+          "text": "one atomic factual claim",
+          "evidence_quotes": ["exact phrase from transcript"]
+        }}
+      ],
       "question": "active recall question",
       "answer": "reference answer",
       "difficulty": "easy"
@@ -397,32 +420,175 @@ def _extract_json(raw_output: str) -> str:
     return without_thinking
 
 
-def _filter_grounded_cards(
-    cards: list[KnowledgeCardDraft],
-    context_text: str,
+def _build_grounded_cards(
+    llm_cards: list[_LLMKnowledgeCard],
+    context: job_service.TranscriptContext,
+    *,
+    limit: int,
 ) -> list[KnowledgeCardDraft]:
-    context_terms = _terms([context_text])
-
-    if not context_terms:
-        return cards
-
     grounded_cards: list[KnowledgeCardDraft] = []
 
-    for card in cards:
-        card_terms = _terms(
-            [
-                card.title,
-                card.summary,
-                *card.key_points,
-                card.question,
-                card.answer,
-            ]
+    for llm_card in llm_cards:
+        claims = _ground_claims(llm_card.claims, context.segments)
+
+        if not claims:
+            continue
+
+        evidence_items = [
+            evidence
+            for claim in claims
+            for evidence in claim.evidence
+        ]
+        source_start_seconds = min(
+            evidence.segment_start_seconds
+            for evidence in evidence_items
+        )
+        source_end_seconds = max(
+            evidence.segment_end_seconds
+            for evidence in evidence_items
         )
 
-        if len(card_terms & context_terms) >= 2:
-            grounded_cards.append(card)
+        grounded_cards.append(
+            KnowledgeCardDraft(
+                title=llm_card.title.strip(),
+                summary=llm_card.summary.strip(),
+                key_points=[
+                    point.strip()
+                    for point in llm_card.key_points
+                    if point.strip()
+                ],
+                claims=claims,
+                unsupported_terms=_find_unsupported_terms(
+                    llm_card,
+                    claims,
+                    context.segments,
+                ),
+                question=llm_card.question.strip(),
+                answer=llm_card.answer.strip(),
+                difficulty=llm_card.difficulty,
+                source_start_seconds=source_start_seconds,
+                source_end_seconds=source_end_seconds,
+            )
+        )
+
+        if len(grounded_cards) >= limit:
+            break
 
     return grounded_cards
+
+
+def _ground_claims(
+    llm_claims: list[_LLMCardClaim],
+    segments: list[job_service.TranscriptSegment],
+) -> list[KnowledgeCardClaim]:
+    grounded_claims: list[KnowledgeCardClaim] = []
+
+    for llm_claim in llm_claims:
+        claim_text = llm_claim.text.strip()
+
+        if not claim_text:
+            continue
+
+        evidence_items = [
+            evidence
+            for quote in llm_claim.evidence_quotes
+            if (evidence := _match_evidence_quote(quote, segments))
+            is not None
+        ]
+        evidence_items = _dedupe_evidence(evidence_items)
+
+        if evidence_items:
+            grounded_claims.append(
+                KnowledgeCardClaim(
+                    text=claim_text,
+                    evidence=evidence_items,
+                )
+            )
+
+    return grounded_claims
+
+
+def _match_evidence_quote(
+    quote: str,
+    segments: list[job_service.TranscriptSegment],
+) -> KnowledgeCardEvidence | None:
+    clean_quote = _clean_evidence_quote(quote)
+    normalized_quote = _normalize_for_match(clean_quote)
+
+    if len(normalized_quote) < 6:
+        return None
+
+    for segment in segments:
+        if normalized_quote in _normalize_for_match(segment.text):
+            return KnowledgeCardEvidence(
+                quote=clean_quote,
+                segment_start_seconds=segment.start_seconds,
+                segment_end_seconds=segment.end_seconds,
+            )
+
+    return None
+
+
+def _clean_evidence_quote(quote: str) -> str:
+    clean_quote = quote.strip().strip('"').strip("'").strip()
+
+    return re.sub(
+        r"^\[\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?\s*\]\s*",
+        "",
+        clean_quote,
+    ).strip()
+
+
+def _normalize_for_match(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip().lower()
+
+
+def _dedupe_evidence(
+    evidence_items: list[KnowledgeCardEvidence],
+) -> list[KnowledgeCardEvidence]:
+    seen: set[tuple[str, float, float]] = set()
+    deduped: list[KnowledgeCardEvidence] = []
+
+    for evidence in evidence_items:
+        key = (
+            _normalize_for_match(evidence.quote),
+            evidence.segment_start_seconds,
+            evidence.segment_end_seconds,
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        deduped.append(evidence)
+
+    return deduped
+
+
+def _find_unsupported_terms(
+    llm_card: _LLMKnowledgeCard,
+    claims: list[KnowledgeCardClaim],
+    segments: list[job_service.TranscriptSegment],
+) -> list[str]:
+    context_terms = _terms(
+        segment.text
+        for segment in segments
+    )
+
+    if not context_terms:
+        return []
+
+    card_terms = _terms(
+        [
+            llm_card.title,
+            *[
+                claim.text
+                for claim in claims
+            ],
+        ]
+    )
+
+    return sorted(card_terms - context_terms)[:12]
 
 
 def _terms(values: Iterable[str]) -> set[str]:

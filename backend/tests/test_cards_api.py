@@ -165,6 +165,14 @@ def test_draft_cards_returns_structured_cards(monkeypatch, tmp_path):
                     "It affects each parameter update.",
                     "Too large a value can overshoot."
                   ],
+                  "claims": [
+                    {
+                      "text": "The learning rate controls update size.",
+                      "evidence_quotes": [
+                        "The learning rate controls update size."
+                      ]
+                    }
+                  ],
                   "question": "What does the learning rate control?",
                   "answer": "It controls the size of parameter updates.",
                   "difficulty": "easy"
@@ -209,11 +217,26 @@ def test_draft_cards_returns_structured_cards(monkeypatch, tmp_path):
                 "It affects each parameter update.",
                 "Too large a value can overshoot.",
             ],
+            "claims": [
+                {
+                    "text": "The learning rate controls update size.",
+                    "evidence": [
+                        {
+                            "quote": (
+                                "The learning rate controls update size."
+                            ),
+                            "segment_start_seconds": 4.0,
+                            "segment_end_seconds": 8.0,
+                        }
+                    ],
+                }
+            ],
+            "unsupported_terms": [],
             "question": "What does the learning rate control?",
             "answer": "It controls the size of parameter updates.",
             "difficulty": "easy",
-            "source_start_seconds": 0.0,
-            "source_end_seconds": 10.0,
+            "source_start_seconds": 4.0,
+            "source_end_seconds": 8.0,
         }
     ]
     assert len(fake_client.calls) == 1
@@ -236,6 +259,14 @@ def test_draft_cards_repairs_malformed_json(
                   "title": "Gradient Descent",
                   "summary": "Gradient descent updates parameters.",
                   "key_points": ["It is an optimization method."],
+                  "claims": [
+                    {
+                      "text": "Gradient descent updates parameters.",
+                      "evidence_quotes": [
+                        "Gradient descent updates parameters."
+                      ]
+                    }
+                  ],
                   "question": "What does gradient descent update?",
                   "answer": "It updates parameters.",
                   "difficulty": "medium"
@@ -311,6 +342,14 @@ def test_draft_cards_retries_empty_content_then_succeeds(
                   "title": "Learning Rate",
                   "summary": "The learning rate controls update size.",
                   "key_points": ["It affects parameter updates."],
+                  "claims": [
+                    {
+                      "text": "The learning rate controls update size.",
+                      "evidence_quotes": [
+                        "The learning rate controls update size."
+                      ]
+                    }
+                  ],
                   "question": "What does the learning rate control?",
                   "answer": "It controls update size.",
                   "difficulty": "easy"
@@ -355,6 +394,14 @@ def test_draft_cards_rejects_ungrounded_cards(
                   "title": "Newton's Laws",
                   "summary": "Newton's laws describe motion and forces.",
                   "key_points": ["Force equals mass times acceleration."],
+                  "claims": [
+                    {
+                      "text": "Force equals mass times acceleration.",
+                      "evidence_quotes": [
+                        "Force equals mass times acceleration."
+                      ]
+                    }
+                  ],
                   "question": "What does Newton's second law state?",
                   "answer": "Force equals mass times acceleration.",
                   "difficulty": "easy"

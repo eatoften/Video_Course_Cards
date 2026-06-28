@@ -326,6 +326,59 @@ button:disabled {
   color: #1d2433;
 }
 
+.claims-block {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #d8dde8;
+}
+
+.claims-title {
+  color: #697386;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.claim-item {
+  display: grid;
+  gap: 7px;
+}
+
+.claim-item p {
+  margin: 0;
+  font-weight: 650;
+}
+
+.claim-item blockquote {
+  margin: 0;
+  padding: 9px 10px;
+  border-left: 3px solid #79b87d;
+  background: #f2f8f3;
+  color: #30405a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.claim-item blockquote span {
+  display: block;
+  margin-bottom: 4px;
+  color: #1f7a3a;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.unsupported-terms {
+  padding: 8px 10px;
+  border: 1px solid #f1c27d;
+  border-radius: 6px;
+  background: #fff8e8;
+  color: #8a5a11;
+  font-size: 13px;
+}
+
 .source-range {
   margin-top: 12px;
 }
