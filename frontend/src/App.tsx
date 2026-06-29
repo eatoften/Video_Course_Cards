@@ -119,6 +119,8 @@ type KnowledgeCardDraft = {
   source_end_seconds: number
 }
 
+type CardReviewState = 'draft' | 'reviewed' | 'needs_fix'
+
 type CardGenerationMetadata = {
   provider: string
   model: string
@@ -153,6 +155,8 @@ type KnowledgeCard = Omit<KnowledgeCardDraft, 'question' | 'answer'> & {
   job_id: string
   question: string | null
   answer: string | null
+  tags: string[]
+  review_state: CardReviewState
   provider: string | null
   model: string | null
   created_at: string
@@ -165,6 +169,8 @@ type KnowledgeCardIndexItem = {
   title: string
   summary: string
   difficulty: KnowledgeCardDraft['difficulty']
+  tags: string[]
+  review_state: CardReviewState
   source_video: string | null
   source_start_seconds: number
   source_end_seconds: number
@@ -205,7 +211,8 @@ type CardEditForm = {
   key_points: string
   question: string
   answer: string
-  difficulty: KnowledgeCardDraft['difficulty']
+  tags: string
+  review_state: CardReviewState
 }
 
 type NoteForm = {
@@ -294,6 +301,20 @@ function formatElapsed(seconds: number): string {
   }
 
   return `${seconds.toFixed(1)} s`
+}
+
+function parseTags(value: string): string[] {
+  const tags: string[] = []
+
+  for (const tag of value.split(',')) {
+    const normalizedTag = tag.trim().toLowerCase()
+
+    if (normalizedTag && !tags.includes(normalizedTag)) {
+      tags.push(normalizedTag)
+    }
+  }
+
+  return tags
 }
 
 type CardSignatureSource = Pick<
@@ -402,6 +423,13 @@ function App() {
     KnowledgeCardIndexItem[]
   >([])
   const [cardRailSearch, setCardRailSearch] = useState('')
+  const [cardRailReviewFilter, setCardRailReviewFilter] = useState<
+    'all' | CardReviewState
+  >('all')
+  const [cardRailTagFilter, setCardRailTagFilter] = useState('')
+  const [cardRailNoteFilter, setCardRailNoteFilter] = useState<
+    'all' | 'has_notes' | 'no_notes'
+  >('all')
   const [isCardRailOpen, setIsCardRailOpen] = useState(false)
   const [selectedRailCard, setSelectedRailCard] =
     useState<KnowledgeCard | null>(null)
@@ -463,19 +491,55 @@ function App() {
 
   const filteredCourseCardIndex = useMemo(() => {
     const query = cardRailSearch.trim().toLowerCase()
-
-    if (!query) {
-      return courseCardIndex
-    }
+    const tagQuery = cardRailTagFilter.trim().toLowerCase()
 
     return courseCardIndex.filter((card) => {
+      if (
+        cardRailReviewFilter !== 'all' &&
+        card.review_state !== cardRailReviewFilter
+      ) {
+        return false
+      }
+
+      if (
+        cardRailNoteFilter === 'has_notes' &&
+        card.note_count === 0
+      ) {
+        return false
+      }
+
+      if (
+        cardRailNoteFilter === 'no_notes' &&
+        card.note_count > 0
+      ) {
+        return false
+      }
+
+      if (
+        tagQuery &&
+        !card.tags.some((tag) => tag.includes(tagQuery))
+      ) {
+        return false
+      }
+
+      if (!query) {
+        return true
+      }
+
       return [
         card.title,
         card.summary,
         card.source_video ?? '',
+        ...card.tags,
       ].some((value) => value.toLowerCase().includes(query))
     })
-  }, [cardRailSearch, courseCardIndex])
+  }, [
+    cardRailNoteFilter,
+    cardRailReviewFilter,
+    cardRailSearch,
+    cardRailTagFilter,
+    courseCardIndex,
+  ])
 
   const savedCardSignatures = useMemo(() => {
     return new Set(savedCards.map((card) => cardSignature(card)))
@@ -646,7 +710,8 @@ function App() {
         key_points: card.key_points.join('\n'),
         question: card.question ?? '',
         answer: card.answer ?? '',
-        difficulty: card.difficulty,
+        tags: card.tags.join(', '),
+        review_state: card.review_state,
       })
       setCardNotes((previousNotes) => ({
         ...previousNotes,
@@ -1253,7 +1318,8 @@ function App() {
       key_points: card.key_points.join('\n'),
       question: card.question ?? '',
       answer: card.answer ?? '',
-      difficulty: card.difficulty,
+      tags: card.tags.join(', '),
+      review_state: card.review_state,
     })
   }
 
@@ -1282,7 +1348,8 @@ function App() {
               .filter(Boolean),
             question: cardEditForm.question || null,
             answer: cardEditForm.answer || null,
-            difficulty: cardEditForm.difficulty,
+            tags: parseTags(cardEditForm.tags),
+            review_state: cardEditForm.review_state,
           }),
         },
       )
@@ -1336,7 +1403,8 @@ function App() {
               .filter(Boolean),
             question: railCardEditForm.question || null,
             answer: railCardEditForm.answer || null,
-            difficulty: railCardEditForm.difficulty,
+            tags: parseTags(railCardEditForm.tags),
+            review_state: railCardEditForm.review_state,
           }),
         },
       )
@@ -1348,7 +1416,8 @@ function App() {
         key_points: updatedCard.key_points.join('\n'),
         question: updatedCard.question ?? '',
         answer: updatedCard.answer ?? '',
-        difficulty: updatedCard.difficulty,
+        tags: updatedCard.tags.join(', '),
+        review_state: updatedCard.review_state,
       })
       setSavedCards((previousCards) =>
         sortCardsBySource(
@@ -1850,6 +1919,41 @@ function App() {
             onChange={(event) => setCardRailSearch(event.target.value)}
             placeholder="Search cards"
           />
+          <div className="card-rail-filters">
+            <select
+              value={cardRailReviewFilter}
+              onChange={(event) =>
+                setCardRailReviewFilter(
+                  event.target.value as 'all' | CardReviewState,
+                )
+              }
+            >
+              <option value="all">all states</option>
+              <option value="draft">draft</option>
+              <option value="reviewed">reviewed</option>
+              <option value="needs_fix">needs fix</option>
+            </select>
+            <select
+              value={cardRailNoteFilter}
+              onChange={(event) =>
+                setCardRailNoteFilter(
+                  event.target.value as
+                    'all' | 'has_notes' | 'no_notes',
+                )
+              }
+            >
+              <option value="all">all notes</option>
+              <option value="has_notes">has notes</option>
+              <option value="no_notes">no notes</option>
+            </select>
+            <input
+              value={cardRailTagFilter}
+              onChange={(event) =>
+                setCardRailTagFilter(event.target.value)
+              }
+              placeholder="Tag filter"
+            />
+          </div>
           <div className="card-rail-list">
             {filteredCourseCardIndex.length ? (
               filteredCourseCardIndex.map((card) => (
@@ -1864,13 +1968,25 @@ function App() {
                     .join(' ')}
                   onClick={() => void openRailCard(card.id)}
                 >
-                  <strong>{card.title}</strong>
-                  <span>{card.summary}</span>
-                  <small>
+                  <strong className="card-rail-title">
+                    {card.title}
+                  </strong>
+                  <span className="card-rail-summary">
+                    {card.summary}
+                  </span>
+                  <small className="card-rail-meta-line">
+                    {card.review_state} ·{' '}
                     {card.source_video ?? 'video'} ·{' '}
                     {formatTime(card.source_start_seconds)} ·{' '}
                     {card.note_count} notes
                   </small>
+                  {card.tags.length > 0 && (
+                    <div className="tag-row">
+                      {card.tags.map((tag) => (
+                        <span key={tag}>{tag}</span>
+                      ))}
+                    </div>
+                  )}
                 </button>
               ))
             ) : (
@@ -1896,12 +2012,19 @@ function App() {
             {selectedRailCard && railCardEditForm && (
               <div className="rail-card-file">
                 <div className="rail-card-meta">
-                  <span>{selectedRailCard.difficulty}</span>
+                  <span>{selectedRailCard.review_state}</span>
                   <span>
                     {formatTime(selectedRailCard.source_start_seconds)} -{' '}
                     {formatTime(selectedRailCard.source_end_seconds)}
                   </span>
                 </div>
+                {selectedRailCard.tags.length > 0 && (
+                  <div className="tag-row">
+                    {selectedRailCard.tags.map((tag) => (
+                      <span key={tag}>{tag}</span>
+                    ))}
+                  </div>
+                )}
                 <div className="edit-card-form">
                   <input
                     value={railCardEditForm.title}
@@ -1948,19 +2071,29 @@ function App() {
                       })
                     }
                   />
-                  <select
-                    value={railCardEditForm.difficulty}
+                  <input
+                    value={railCardEditForm.tags}
                     onChange={(event) =>
                       setRailCardEditForm({
                         ...railCardEditForm,
-                        difficulty: event.target.value as
-                          KnowledgeCardDraft['difficulty'],
+                        tags: event.target.value,
+                      })
+                    }
+                    placeholder="Tags, comma separated"
+                  />
+                  <select
+                    value={railCardEditForm.review_state}
+                    onChange={(event) =>
+                      setRailCardEditForm({
+                        ...railCardEditForm,
+                        review_state: event.target.value as
+                          CardReviewState,
                       })
                     }
                   >
-                    <option value="easy">easy</option>
-                    <option value="medium">medium</option>
-                    <option value="hard">hard</option>
+                    <option value="draft">draft</option>
+                    <option value="reviewed">reviewed</option>
+                    <option value="needs_fix">needs fix</option>
                   </select>
                   <div className="card-actions">
                     <button
@@ -2353,7 +2486,6 @@ function App() {
                           >
                             {isSaved ? 'Saved' : 'Unsaved'}
                           </span>
-                          <span>{card.difficulty}</span>
                         </div>
                       </div>
                       <p>{card.summary}</p>
@@ -2466,19 +2598,29 @@ function App() {
                               })
                             }
                           />
-                          <select
-                            value={cardEditForm.difficulty}
+                          <input
+                            value={cardEditForm.tags}
                             onChange={(event) =>
                               setCardEditForm({
                                 ...cardEditForm,
-                                difficulty: event.target.value as
-                                  KnowledgeCardDraft['difficulty'],
+                                tags: event.target.value,
+                              })
+                            }
+                            placeholder="Tags, comma separated"
+                          />
+                          <select
+                            value={cardEditForm.review_state}
+                            onChange={(event) =>
+                              setCardEditForm({
+                                ...cardEditForm,
+                                review_state: event.target.value as
+                                  CardReviewState,
                               })
                             }
                           >
-                            <option value="easy">easy</option>
-                            <option value="medium">medium</option>
-                            <option value="hard">hard</option>
+                            <option value="draft">draft</option>
+                            <option value="reviewed">reviewed</option>
+                            <option value="needs_fix">needs fix</option>
                           </select>
                           <div className="card-actions">
                             <button
@@ -2507,9 +2649,16 @@ function App() {
                               <span className="card-status saved">
                                 Saved
                               </span>
-                              <span>{card.difficulty}</span>
+                              <span>{card.review_state}</span>
                             </div>
                           </div>
+                          {card.tags.length > 0 && (
+                            <div className="tag-row">
+                              {card.tags.map((tag) => (
+                                <span key={tag}>{tag}</span>
+                              ))}
+                            </div>
+                          )}
                           <p>{card.summary}</p>
                           <ul>
                             {card.key_points.map((point) => (

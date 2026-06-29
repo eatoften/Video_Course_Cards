@@ -36,6 +36,10 @@ def _unsupported_terms_to_json(card: KnowledgeCard) -> str:
     return json.dumps(card.unsupported_terms, ensure_ascii=False)
 
 
+def _tags_to_json(card: KnowledgeCard) -> str:
+    return json.dumps(card.tags, ensure_ascii=False)
+
+
 def _key_points_from_json(value: str) -> list[str]:
     raw_points = json.loads(value)
 
@@ -75,6 +79,19 @@ def _unsupported_terms_from_json(value: str) -> list[str]:
     ]
 
 
+def _tags_from_json(value: str) -> list[str]:
+    raw_tags = json.loads(value)
+
+    if not isinstance(raw_tags, list):
+        return []
+
+    return [
+        str(tag).strip()
+        for tag in raw_tags
+        if str(tag).strip()
+    ]
+
+
 def _row_to_card(row: Row) -> KnowledgeCard:
     return KnowledgeCard(
         id=row["id"],
@@ -89,6 +106,8 @@ def _row_to_card(row: Row) -> KnowledgeCard:
         question=row["question"],
         answer=row["answer"],
         difficulty=row["difficulty"],
+        tags=_tags_from_json(row["tags"]),
+        review_state=row["review_state"],
         source_start_seconds=row["source_start_seconds"],
         source_end_seconds=row["source_end_seconds"],
         provider=row["provider"],
@@ -105,6 +124,8 @@ def _row_to_card_index_item(row: Row) -> KnowledgeCardIndexItem:
         title=row["title"],
         summary=row["summary"],
         difficulty=row["difficulty"],
+        tags=_tags_from_json(row["tags"]),
+        review_state=row["review_state"],
         source_video=row["source_video"],
         source_start_seconds=row["source_start_seconds"],
         source_end_seconds=row["source_end_seconds"],
@@ -131,13 +152,15 @@ def create_card(card: KnowledgeCard) -> None:
                 question,
                 answer,
                 difficulty,
+                tags,
+                review_state,
                 source_start_seconds,
                 source_end_seconds,
                 provider,
                 model,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 card.id,
@@ -150,6 +173,8 @@ def create_card(card: KnowledgeCard) -> None:
                 card.question,
                 card.answer,
                 card.difficulty,
+                _tags_to_json(card),
+                card.review_state,
                 card.source_start_seconds,
                 card.source_end_seconds,
                 card.provider,
@@ -225,6 +250,8 @@ def list_card_index_for_course(
                 knowledge_cards.title,
                 knowledge_cards.summary,
                 knowledge_cards.difficulty,
+                knowledge_cards.tags,
+                knowledge_cards.review_state,
                 COALESCE(
                     jobs.original_filename,
                     jobs.stored_name,
@@ -266,6 +293,8 @@ def update_card(card: KnowledgeCard) -> None:
                 question = ?,
                 answer = ?,
                 difficulty = ?,
+                tags = ?,
+                review_state = ?,
                 source_start_seconds = ?,
                 source_end_seconds = ?,
                 provider = ?,
@@ -282,6 +311,8 @@ def update_card(card: KnowledgeCard) -> None:
                 card.question,
                 card.answer,
                 card.difficulty,
+                _tags_to_json(card),
+                card.review_state,
                 card.source_start_seconds,
                 card.source_end_seconds,
                 card.provider,

@@ -25,7 +25,7 @@ JOB_COLUMNS: dict[str, str] = {
     "completed_at": "TEXT",
 }
 
-KNOWLEDGE_CARD_COLUMNS = {
+KNOWLEDGE_CARD_CORE_COLUMNS = {
     "id",
     "job_id",
     "title",
@@ -42,6 +42,11 @@ KNOWLEDGE_CARD_COLUMNS = {
     "model",
     "created_at",
     "updated_at",
+}
+
+KNOWLEDGE_CARD_ADDED_COLUMNS: dict[str, str] = {
+    "tags": "TEXT NOT NULL DEFAULT '[]'",
+    "review_state": "TEXT NOT NULL DEFAULT 'draft'",
 }
 
 
@@ -172,9 +177,12 @@ def init_db() -> None:
 
         if (
             existing_card_columns
-            and not KNOWLEDGE_CARD_COLUMNS.issubset(existing_card_columns)
+            and not KNOWLEDGE_CARD_CORE_COLUMNS.issubset(
+                existing_card_columns
+            )
         ):
             conn.execute("DROP TABLE knowledge_cards")
+            existing_card_columns = set()
 
         conn.execute(
             """
@@ -189,6 +197,8 @@ def init_db() -> None:
                 question TEXT,
                 answer TEXT,
                 difficulty TEXT NOT NULL,
+                tags TEXT NOT NULL DEFAULT '[]',
+                review_state TEXT NOT NULL DEFAULT 'draft',
                 source_start_seconds REAL NOT NULL,
                 source_end_seconds REAL NOT NULL,
                 provider TEXT,
@@ -196,6 +206,34 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
+            """
+        )
+
+        existing_card_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(knowledge_cards)")
+        }
+
+        for column_name, column_type in KNOWLEDGE_CARD_ADDED_COLUMNS.items():
+            if column_name not in existing_card_columns:
+                conn.execute(
+                    "ALTER TABLE knowledge_cards "
+                    f"ADD COLUMN {column_name} {column_type}"
+                )
+
+        conn.execute(
+            """
+            UPDATE knowledge_cards
+            SET tags = '[]'
+            WHERE tags IS NULL OR trim(tags) = ''
+            """
+        )
+
+        conn.execute(
+            """
+            UPDATE knowledge_cards
+            SET review_state = 'draft'
+            WHERE review_state IS NULL OR trim(review_state) = ''
             """
         )
 

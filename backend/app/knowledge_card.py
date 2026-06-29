@@ -7,6 +7,7 @@ from .job import utc_now
 
 
 KnowledgeCardDifficulty = Literal["easy", "medium", "hard"]
+KnowledgeCardReviewState = Literal["draft", "reviewed", "needs_fix"]
 
 
 class KnowledgeCardEvidence(BaseModel):
@@ -29,6 +30,8 @@ class KnowledgeCardBase(BaseModel):
     question: str | None = None
     answer: str | None = None
     difficulty: KnowledgeCardDifficulty = "medium"
+    tags: list[str] = Field(default_factory=list)
+    review_state: KnowledgeCardReviewState = "draft"
     source_start_seconds: float = Field(ge=0)
     source_end_seconds: float = Field(ge=0)
     provider: str | None = None
@@ -48,6 +51,8 @@ class KnowledgeCardUpdate(BaseModel):
     question: str | None = None
     answer: str | None = None
     difficulty: KnowledgeCardDifficulty | None = None
+    tags: list[str] | None = None
+    review_state: KnowledgeCardReviewState | None = None
     source_start_seconds: float | None = Field(default=None, ge=0)
     source_end_seconds: float | None = Field(default=None, ge=0)
     provider: str | None = None
@@ -67,6 +72,8 @@ class KnowledgeCardIndexItem(BaseModel):
     title: str
     summary: str
     difficulty: KnowledgeCardDifficulty
+    tags: list[str] = Field(default_factory=list)
+    review_state: KnowledgeCardReviewState
     source_video: str | None = None
     source_start_seconds: float
     source_end_seconds: float

@@ -68,6 +68,8 @@ def save_job_card(
         question=_clean_optional_text(request.question),
         answer=_clean_optional_text(request.answer),
         difficulty=request.difficulty,
+        tags=_clean_tags(request.tags),
+        review_state=request.review_state,
         source_start_seconds=request.source_start_seconds,
         source_end_seconds=request.source_end_seconds,
         provider=_clean_optional_text(request.provider),
@@ -118,6 +120,12 @@ def update_saved_card(
 
     if "difficulty" in update_data and request.difficulty is not None:
         card.difficulty = request.difficulty
+
+    if "tags" in update_data and request.tags is not None:
+        card.tags = _clean_tags(request.tags)
+
+    if "review_state" in update_data and request.review_state is not None:
+        card.review_state = request.review_state
 
     if (
         "source_start_seconds" in update_data
@@ -241,6 +249,18 @@ def _clean_terms(terms: list[str]) -> list[str]:
             cleaned_terms.append(stripped)
 
     return cleaned_terms
+
+
+def _clean_tags(tags: list[str]) -> list[str]:
+    cleaned_tags: list[str] = []
+
+    for tag in tags:
+        stripped = tag.strip().lower()
+
+        if stripped and stripped not in cleaned_tags:
+            cleaned_tags.append(stripped)
+
+    return cleaned_tags
 
 
 def _clean_optional_text(value: str | None) -> str | None:

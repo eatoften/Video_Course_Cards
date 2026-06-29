@@ -74,7 +74,88 @@ def test_init_db_drops_legacy_cards_without_claims(tmp_path):
 
     assert "claims" in columns
     assert "unsupported_terms" in columns
+    assert "tags" in columns
+    assert "review_state" in columns
     assert rows == []
+
+
+def test_init_db_adds_card_organization_columns_without_dropping(tmp_path):
+    db_path = tmp_path / "cards.db"
+    configure_db(db_path)
+
+    with connect() as conn:
+        conn.execute(
+            """
+            CREATE TABLE knowledge_cards (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                key_points TEXT NOT NULL,
+                claims TEXT NOT NULL,
+                unsupported_terms TEXT NOT NULL,
+                question TEXT,
+                answer TEXT,
+                difficulty TEXT NOT NULL,
+                source_start_seconds REAL NOT NULL,
+                source_end_seconds REAL NOT NULL,
+                provider TEXT,
+                model TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO knowledge_cards (
+                id,
+                job_id,
+                title,
+                summary,
+                key_points,
+                claims,
+                unsupported_terms,
+                difficulty,
+                source_start_seconds,
+                source_end_seconds,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "card-123",
+                "job-123",
+                "SVD",
+                "A matrix factorization.",
+                "[]",
+                "[]",
+                "[]",
+                "medium",
+                0.0,
+                1.0,
+                "2026-06-01T00:00:00",
+                "2026-06-01T00:00:00",
+            ),
+        )
+
+    init_db()
+
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT id, tags, review_state
+            FROM knowledge_cards
+            WHERE id = ?
+            """,
+            ("card-123",),
+        ).fetchone()
+
+    assert dict(row) == {
+        "id": "card-123",
+        "tags": "[]",
+        "review_state": "draft",
+    }
 
 
 def create_uploaded_job(tmp_path, job_id: str = "job-123") -> VideoJob:
@@ -143,6 +224,8 @@ def test_save_and_list_job_cards(tmp_path):
     ]
     assert created_card["claims"] == card_payload()["claims"]
     assert created_card["unsupported_terms"] == []
+    assert created_card["tags"] == []
+    assert created_card["review_state"] == "draft"
     assert created_card["created_at"]
     assert created_card["updated_at"]
 
@@ -187,6 +270,12 @@ def test_update_saved_card(tmp_path):
                 "Orthogonal matrices",
             ],
             "difficulty": "medium",
+            "tags": [
+                "SVD",
+                "matrix factorization",
+                "svd",
+            ],
+            "review_state": "reviewed",
         },
     )
 
@@ -205,6 +294,11 @@ def test_update_saved_card(tmp_path):
     ]
     assert updated_card["claims"] == created_card["claims"]
     assert updated_card["difficulty"] == "medium"
+    assert updated_card["tags"] == [
+        "svd",
+        "matrix factorization",
+    ]
+    assert updated_card["review_state"] == "reviewed"
     assert updated_card["updated_at"] >= created_card["updated_at"]
 
 
