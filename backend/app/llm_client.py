@@ -35,6 +35,10 @@ class LLMClientError(Exception):
     pass
 
 
+class LLMTimeoutError(LLMClientError):
+    pass
+
+
 class LocalLLMClient:
     def __init__(self, settings: LLMSettings | None = None) -> None:
         self.settings = settings or get_llm_settings()
@@ -125,6 +129,10 @@ class LocalLLMClient:
                 response.raise_for_status()
                 data = response.json()
 
+        except httpx.TimeoutException as exc:
+            raise LLMTimeoutError(
+                "Local LLM request timed out."
+            ) from exc
         except httpx.HTTPError as exc:
             raise LLMClientError(
                 f"Local LLM request failed: {exc}"

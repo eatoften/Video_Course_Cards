@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from .course import DEFAULT_COURSE_ID
 from .media_metadata import VideoMetadata
 
 
@@ -22,6 +23,7 @@ class VideoJobStatus(str, Enum):
 
 class VideoJob(BaseModel):
     id: str
+    course_id: str = DEFAULT_COURSE_ID
     video_path: Path
     status: VideoJobStatus
     original_filename: str | None = None

@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 from sqlite3 import Row
 
+from .course import DEFAULT_COURSE_ID
 from .db import connect, ensure_db
 from .job import VideoJob, VideoJobStatus, utc_now
 from .media_metadata import VideoMetadata
@@ -49,6 +50,7 @@ def _row_to_job(row: Row) -> VideoJob:
 
     return VideoJob(
         id=row["id"],
+        course_id=row["course_id"] or DEFAULT_COURSE_ID,
         video_path=Path(row["video_path"]),
         status=VideoJobStatus(row["status"]),
         original_filename=row["original_filename"],
@@ -78,6 +80,7 @@ def create_job(job: VideoJob) -> None:
             """
             INSERT INTO jobs (
                 id,
+                course_id,
                 video_path,
                 status,
                 original_filename,
@@ -90,10 +93,11 @@ def create_job(job: VideoJob) -> None:
                 updated_at,
                 started_at,
                 completed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job.id,
+                job.course_id,
                 str(job.video_path),
                 job.status.value,
                 job.original_filename,
@@ -139,6 +143,22 @@ def list_jobs() -> list[VideoJob]:
     return [_row_to_job(row) for row in rows]
 
 
+def list_jobs_for_course(course_id: str) -> list[VideoJob]:
+    ensure_db()
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM jobs
+            WHERE course_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (course_id,),
+        ).fetchall()
+
+    return [_row_to_job(row) for row in rows]
+
+
 def update_job(job: VideoJob) -> None:
     ensure_db()
 
@@ -146,7 +166,8 @@ def update_job(job: VideoJob) -> None:
         conn.execute(
             """
             UPDATE jobs
-            SET status = ?,
+            SET course_id = ?,
+                status = ?,
                 original_filename = ?,
                 stored_name = ?,
                 size_bytes = ?,
@@ -160,6 +181,7 @@ def update_job(job: VideoJob) -> None:
             WHERE id = ?
             """,
             (
+                job.course_id,
                 job.status.value,
                 job.original_filename,
                 job.stored_name,
@@ -172,6 +194,26 @@ def update_job(job: VideoJob) -> None:
                 _datetime_to_text(job.started_at),
                 _datetime_to_text(job.completed_at),
                 job.id,
+            ),
+        )
+
+
+def move_jobs_to_course(
+    source_course_id: str,
+    target_course_id: str,
+) -> None:
+    ensure_db()
+
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE jobs
+            SET course_id = ?
+            WHERE course_id = ?
+            """,
+            (
+                target_course_id,
+                source_course_id,
             ),
         )
 

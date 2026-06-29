@@ -11,6 +11,8 @@ import './App.css'
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 
+const DEFAULT_COURSE_ID = 'uncategorized'
+
 type JobStatus =
   | 'uploaded'
   | 'probing'
@@ -29,6 +31,7 @@ type VideoMetadata = {
 
 type VideoJob = {
   id: string
+  course_id: string
   video_path: string
   status: JobStatus
   original_filename: string | null
@@ -41,6 +44,16 @@ type VideoJob = {
   updated_at: string
   started_at: string | null
   completed_at: string | null
+}
+
+type Course = {
+  id: string
+  title: string
+  description: string | null
+  created_at: string
+  updated_at: string
+  job_count: number
+  card_count: number
 }
 
 type TranscriptSegment = {
@@ -106,6 +119,24 @@ type KnowledgeCardDraft = {
   source_end_seconds: number
 }
 
+type CardGenerationMetadata = {
+  provider: string
+  model: string
+  elapsed_seconds: number
+  input_characters: number
+  selected_context_characters: number
+  selected_segments_count: number
+  requested_card_count: number
+  raw_card_count: number
+  returned_card_count: number
+  raw_claim_count: number
+  grounded_claim_count: number
+  dropped_claim_count: number
+  unsupported_terms_count: number
+  max_context_characters: number
+  max_selected_segments: number
+}
+
 type CardDraftResponse = {
   job_id: string
   source_video: string
@@ -113,6 +144,7 @@ type CardDraftResponse = {
   end_seconds: number
   provider: string
   model: string
+  generation_metadata: CardGenerationMetadata
   cards: KnowledgeCardDraft[]
 }
 
@@ -127,6 +159,32 @@ type KnowledgeCard = Omit<KnowledgeCardDraft, 'question' | 'answer'> & {
   updated_at: string
 }
 
+type KnowledgeCardNoteType =
+  | 'user_note'
+  | 'llm_explanation'
+  | 'web_tutorial'
+  | 'practice_question'
+
+type KnowledgeCardNoteSource = 'user' | 'local_llm' | 'web_llm'
+
+type KnowledgeCardNoteReference = {
+  title: string | null
+  url: string | null
+  accessed_at: string | null
+}
+
+type KnowledgeCardNote = {
+  id: string
+  card_id: string
+  note_type: KnowledgeCardNoteType
+  title: string | null
+  body: string
+  source: KnowledgeCardNoteSource
+  sources: KnowledgeCardNoteReference[]
+  created_at: string
+  updated_at: string
+}
+
 type CardEditForm = {
   title: string
   summary: string
@@ -136,8 +194,15 @@ type CardEditForm = {
   difficulty: KnowledgeCardDraft['difficulty']
 }
 
+type NoteForm = {
+  note_type: KnowledgeCardNoteType
+  title: string
+  body: string
+}
+
 type UploadResponse = {
   id: string
+  course_id: string
   filename: string
   stored_name: string
   size_bytes: number
@@ -155,6 +220,14 @@ const runningStatuses: JobStatus[] = [
   'extracting_audio',
   'transcribing',
 ]
+
+function createDefaultNoteForm(): NoteForm {
+  return {
+    note_type: 'user_note',
+    title: '',
+    body: '',
+  }
+}
 
 async function fetchJson<T>(
   path: string,
@@ -201,12 +274,59 @@ function formatSize(bytes: number | null): string {
   return `${megabytes.toFixed(1)} MB`
 }
 
+function formatElapsed(seconds: number): string {
+  if (seconds < 1) {
+    return `${Math.round(seconds * 1000)} ms`
+  }
+
+  return `${seconds.toFixed(1)} s`
+}
+
+type CardSignatureSource = Pick<
+  KnowledgeCardDraft,
+  'title' | 'source_start_seconds' | 'source_end_seconds' | 'claims'
+>
+
+type SourceSortableCard = {
+  title: string
+  source_start_seconds: number
+  source_end_seconds: number
+}
+
+function cardSignature(card: CardSignatureSource): string {
+  return JSON.stringify({
+    title: card.title.trim(),
+    source_start_seconds: card.source_start_seconds,
+    source_end_seconds: card.source_end_seconds,
+    claims: card.claims.map((claim) => ({
+      text: claim.text.trim(),
+      evidence: claim.evidence.map((evidence) => ({
+        quote: evidence.quote.trim(),
+        segment_start_seconds: evidence.segment_start_seconds,
+        segment_end_seconds: evidence.segment_end_seconds,
+      })),
+    })),
+  })
+}
+
+function sortCardsBySource<T extends SourceSortableCard>(cards: T[]): T[] {
+  return [...cards].sort((left, right) => {
+    if (left.source_start_seconds !== right.source_start_seconds) {
+      return left.source_start_seconds - right.source_start_seconds
+    }
+
+    return left.title.localeCompare(right.title)
+  })
+}
+
 function ClaimsBlock({
   claims,
   unsupportedTerms,
+  onJumpToTime,
 }: {
   claims: KnowledgeCardClaim[]
   unsupportedTerms: string[]
+  onJumpToTime: (seconds: number) => void
 }) {
   return (
     <div className="claims-block">
@@ -221,10 +341,16 @@ function ClaimsBlock({
             <blockquote
               key={`${evidence.quote}-${evidenceIndex}`}
             >
-              <span>
+              <button
+                type="button"
+                className="evidence-time"
+                onClick={() =>
+                  onJumpToTime(evidence.segment_start_seconds)
+                }
+              >
                 {formatTime(evidence.segment_start_seconds)} -{' '}
                 {formatTime(evidence.segment_end_seconds)}
-              </span>
+              </button>
               {evidence.quote}
             </blockquote>
           ))}
@@ -241,8 +367,12 @@ function ClaimsBlock({
 
 function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const cardGenerationAbortRef = useRef<AbortController | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [courses, setCourses] = useState<Course[]>([])
+  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null)
+  const [newCourseTitle, setNewCourseTitle] = useState('')
   const [jobs, setJobs] = useState<VideoJob[]>([])
   const [job, setJob] = useState<VideoJob | null>(null)
   const [transcript, setTranscript] = useState<TranscriptionResult | null>(null)
@@ -254,18 +384,28 @@ function App() {
   const [selectedModel, setSelectedModel] = useState('')
   const [cardDraft, setCardDraft] = useState<CardDraftResponse | null>(null)
   const [savedCards, setSavedCards] = useState<KnowledgeCard[]>([])
+  const [cardNotes, setCardNotes] = useState<
+    Record<string, KnowledgeCardNote[]>
+  >({})
   const [editingCardId, setEditingCardId] = useState<string | null>(null)
   const [cardEditForm, setCardEditForm] = useState<CardEditForm | null>(null)
+  const [noteForms, setNoteForms] = useState<Record<string, NoteForm>>({})
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  const [noteEditForm, setNoteEditForm] = useState<NoteForm | null>(null)
   const [cardFocus, setCardFocus] = useState('')
   const [currentTime, setCurrentTime] = useState(0)
   const [isUploading, setIsUploading] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
   const [isLoadingContext, setIsLoadingContext] = useState(false)
+  const [isLoadingCourses, setIsLoadingCourses] = useState(false)
   const [isLoadingJobs, setIsLoadingJobs] = useState(false)
+  const [isSavingCourse, setIsSavingCourse] = useState(false)
   const [isSavingCard, setIsSavingCard] = useState(false)
+  const [isSavingNote, setIsSavingNote] = useState(false)
   const [isDeletingJob, setIsDeletingJob] = useState(false)
   const [isCheckingLlm, setIsCheckingLlm] = useState(false)
   const [isDraftingCards, setIsDraftingCards] = useState(false)
+  const [generationStatus, setGenerationStatus] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const activeSegmentIndex = useMemo(() => {
@@ -281,6 +421,10 @@ function App() {
     })
   }, [currentTime, transcript])
 
+  const selectedCourse = useMemo(() => {
+    return courses.find((course) => course.id === selectedCourseId) ?? null
+  }, [courses, selectedCourseId])
+
   const selectedSegments = useMemo(() => {
     if (!transcript || !selectedRange) {
       return []
@@ -292,12 +436,29 @@ function App() {
     )
   }, [selectedRange, transcript])
 
+  const savedCardSignatures = useMemo(() => {
+    return new Set(savedCards.map((card) => cardSignature(card)))
+  }, [savedCards])
+
+  const unsavedDraftCards = useMemo(() => {
+    if (!cardDraft) {
+      return []
+    }
+
+    return cardDraft.cards.filter(
+      (card) => !savedCardSignatures.has(cardSignature(card)),
+    )
+  }, [cardDraft, savedCardSignatures])
+
   function clearTranscriptSelection() {
     setSelectedRange(null)
     setTranscriptContext(null)
     setCardDraft(null)
+    setGenerationStatus(null)
     setEditingCardId(null)
     setCardEditForm(null)
+    setEditingNoteId(null)
+    setNoteEditForm(null)
   }
 
   function handleVideoChange(event: ChangeEvent<HTMLInputElement>) {
@@ -319,6 +480,9 @@ function App() {
     })
     setJob(null)
     setTranscript(null)
+    setSavedCards([])
+    setCardNotes({})
+    setNoteForms({})
     clearTranscriptSelection()
     setErrorMessage(null)
   }
@@ -330,11 +494,53 @@ function App() {
     return nextJob
   }
 
-  async function loadJobs() {
+  async function loadCourses(preferredCourseId?: string): Promise<Course[]> {
+    setIsLoadingCourses(true)
+
+    try {
+      const nextCourses = await fetchJson<Course[]>('/courses')
+      const fallbackCourseId =
+        nextCourses.find((course) => course.id === DEFAULT_COURSE_ID)?.id ??
+        nextCourses[0]?.id ??
+        null
+
+      setCourses(nextCourses)
+      setSelectedCourseId((previousCourseId) => {
+        if (
+          preferredCourseId &&
+          nextCourses.some((course) => course.id === preferredCourseId)
+        ) {
+          return preferredCourseId
+        }
+
+        if (
+          previousCourseId &&
+          nextCourses.some((course) => course.id === previousCourseId)
+        ) {
+          return previousCourseId
+        }
+
+        return fallbackCourseId
+      })
+
+      return nextCourses
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Course list failed.',
+      )
+      return []
+    } finally {
+      setIsLoadingCourses(false)
+    }
+  }
+
+  async function loadJobs(courseId: string | null = selectedCourseId) {
     setIsLoadingJobs(true)
 
     try {
-      const nextJobs = await fetchJson<VideoJob[]>('/jobs')
+      const nextJobs = await fetchJson<VideoJob[]>(
+        courseId ? `/courses/${courseId}/jobs` : '/jobs',
+      )
       setJobs(nextJobs)
     } catch (error) {
       setErrorMessage(
@@ -342,6 +548,135 @@ function App() {
       )
     } finally {
       setIsLoadingJobs(false)
+    }
+  }
+
+  function clearActiveJob() {
+    setJob(null)
+    setSelectedFile(null)
+    setVideoUrl((previousUrl) => {
+      if (previousUrl) {
+        URL.revokeObjectURL(previousUrl)
+      }
+
+      return null
+    })
+    setTranscript(null)
+    setSavedCards([])
+    setCardNotes({})
+    setNoteForms({})
+    clearTranscriptSelection()
+  }
+
+  function selectCourse(courseId: string) {
+    setSelectedCourseId(courseId)
+    setJobs([])
+    clearActiveJob()
+    setErrorMessage(null)
+  }
+
+  async function createCourse() {
+    const title = newCourseTitle.trim()
+
+    if (!title) {
+      return
+    }
+
+    setIsSavingCourse(true)
+    setErrorMessage(null)
+
+    try {
+      const createdCourse = await fetchJson<Course>('/courses', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title,
+        }),
+      })
+
+      setNewCourseTitle('')
+      setSelectedCourseId(createdCourse.id)
+      await loadCourses(createdCourse.id)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Course create failed.',
+      )
+    } finally {
+      setIsSavingCourse(false)
+    }
+  }
+
+  async function renameCourse(course: Course) {
+    const title = window.prompt('Course name', course.title)?.trim()
+
+    if (!title || title === course.title) {
+      return
+    }
+
+    setIsSavingCourse(true)
+    setErrorMessage(null)
+
+    try {
+      await fetchJson<Course>(
+        `/courses/${course.id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title,
+          }),
+        },
+      )
+      await loadCourses(course.id)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Course rename failed.',
+      )
+    } finally {
+      setIsSavingCourse(false)
+    }
+  }
+
+  async function deleteCourse(course: Course) {
+    if (course.id === DEFAULT_COURSE_ID) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Delete course "${course.title}"? Its videos will move to Uncategorized.`,
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setIsSavingCourse(true)
+    setErrorMessage(null)
+
+    try {
+      await fetchJson<void>(
+        `/courses/${course.id}`,
+        {
+          method: 'DELETE',
+        },
+      )
+
+      if (selectedCourseId === course.id) {
+        clearActiveJob()
+        setSelectedCourseId(DEFAULT_COURSE_ID)
+      }
+
+      await loadCourses(DEFAULT_COURSE_ID)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Course delete failed.',
+      )
+    } finally {
+      setIsSavingCourse(false)
     }
   }
 
@@ -357,7 +692,29 @@ function App() {
     const cards = await fetchJson<KnowledgeCard[]>(
       `/jobs/${jobId}/cards`,
     )
-    setSavedCards(cards)
+    const sortedCards = sortCardsBySource(cards)
+
+    setSavedCards(sortedCards)
+    await loadNotesForCards(sortedCards)
+  }
+
+  async function loadNotesForCards(cards: KnowledgeCard[]) {
+    if (cards.length === 0) {
+      setCardNotes({})
+      return
+    }
+
+    const entries = await Promise.all(
+      cards.map(async (card) => {
+        const notes = await fetchJson<KnowledgeCardNote[]>(
+          `/cards/${card.id}/notes`,
+        )
+
+        return [card.id, notes] as const
+      }),
+    )
+
+    setCardNotes(Object.fromEntries(entries))
   }
 
   async function openJob(nextJob: VideoJob) {
@@ -372,6 +729,8 @@ function App() {
     })
     setTranscript(null)
     setSavedCards([])
+    setCardNotes({})
+    setNoteForms({})
     clearTranscriptSelection()
     setErrorMessage(null)
 
@@ -403,6 +762,7 @@ function App() {
       setJobs((previousJobs) =>
         previousJobs.filter((item) => item.id !== jobToDelete.id),
       )
+      await loadCourses(jobToDelete.course_id)
 
       if (job?.id === jobToDelete.id) {
         setJob(null)
@@ -416,6 +776,8 @@ function App() {
         })
         setTranscript(null)
         setSavedCards([])
+        setCardNotes({})
+        setNoteForms({})
         clearTranscriptSelection()
       }
     } catch (error) {
@@ -474,14 +836,17 @@ function App() {
     try {
       const formData = new FormData()
       formData.append('video', selectedFile)
+      formData.append('course_id', selectedCourseId ?? DEFAULT_COURSE_ID)
 
       const upload = await fetchJson<UploadResponse>('/videos', {
         method: 'POST',
         body: formData,
       })
 
-      await refreshJob(upload.id)
-      await loadJobs()
+      const uploadedJob = await refreshJob(upload.id)
+      setSelectedCourseId(uploadedJob.course_id)
+      await loadCourses(uploadedJob.course_id)
+      await loadJobs(uploadedJob.course_id)
       await loadSavedCards(upload.id)
     } catch (error) {
       setErrorMessage(
@@ -508,7 +873,7 @@ function App() {
         { method: 'POST' },
       )
       setJob(nextJob)
-      await loadJobs()
+      await loadJobs(nextJob.course_id)
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Processing failed.',
@@ -547,6 +912,19 @@ function App() {
     }
   }
 
+  function jumpToTime(seconds: number) {
+    if (!videoRef.current) {
+      setErrorMessage(
+        'Video preview is not loaded. Choose the local video file to jump playback.',
+      )
+      return
+    }
+
+    setErrorMessage(null)
+    videoRef.current.currentTime = seconds
+    void videoRef.current.play()
+  }
+
   async function generateCards() {
     if (!job || selectedSegments.length === 0) {
       return
@@ -558,10 +936,21 @@ function App() {
     setIsDraftingCards(true)
     setErrorMessage(null)
     setCardDraft(null)
+    setGenerationStatus(
+      `Preparing ${selectedSegments.length} transcript segments`,
+    )
+
+    const controller = new AbortController()
+    cardGenerationAbortRef.current = controller
 
     try {
+      setGenerationStatus(
+        `Calling ${selectedModel || llmStatus?.model || 'local model'}`,
+      )
+
       const draft = await fetchJson<CardDraftResponse>('/cards/draft', {
         method: 'POST',
+        signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
         },
@@ -576,19 +965,66 @@ function App() {
       })
 
       setCardDraft(draft)
+      setGenerationStatus(
+        `Grounded ${draft.generation_metadata.grounded_claim_count} claims in ${formatElapsed(draft.generation_metadata.elapsed_seconds)}`,
+      )
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setGenerationStatus('Generation canceled')
+        return
+      }
+
       setErrorMessage(
         error instanceof Error
           ? error.message
           : 'Card generation failed.',
       )
+      setGenerationStatus(null)
     } finally {
+      if (cardGenerationAbortRef.current === controller) {
+        cardGenerationAbortRef.current = null
+      }
+
       setIsDraftingCards(false)
     }
   }
 
-  async function saveDraftCard(card: KnowledgeCardDraft) {
+  function cancelCardGeneration() {
+    cardGenerationAbortRef.current?.abort()
+    setGenerationStatus('Generation canceled')
+  }
+
+  async function createSavedCardFromDraft(
+    card: KnowledgeCardDraft,
+  ): Promise<KnowledgeCard> {
     if (!job || !cardDraft) {
+      throw new Error('No active job or draft cards.')
+    }
+
+    return fetchJson<KnowledgeCard>(
+      `/jobs/${job.id}/cards`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...card,
+          provider: cardDraft.provider,
+          model: cardDraft.model,
+        }),
+      },
+    )
+  }
+
+  async function saveDraftCard(card: KnowledgeCardDraft) {
+    const activeJob = job
+
+    if (!activeJob) {
+      return
+    }
+
+    if (savedCardSignatures.has(cardSignature(card))) {
       return
     }
 
@@ -596,26 +1032,78 @@ function App() {
     setErrorMessage(null)
 
     try {
-      const savedCard = await fetchJson<KnowledgeCard>(
-        `/jobs/${job.id}/cards`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            ...card,
-            provider: cardDraft.provider,
-            model: cardDraft.model,
-          }),
-        },
-      )
+      const savedCard = await createSavedCardFromDraft(card)
 
-      setSavedCards((previousCards) => [...previousCards, savedCard])
+      setSavedCards((previousCards) =>
+        sortCardsBySource([...previousCards, savedCard]),
+      )
+      setCardNotes((previousNotes) => ({
+        ...previousNotes,
+        [savedCard.id]: [],
+      }))
+      await loadCourses(activeJob.course_id)
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Card save failed.',
       )
+    } finally {
+      setIsSavingCard(false)
+    }
+  }
+
+  async function saveAllDraftCards() {
+    const activeJob = job
+
+    if (!activeJob) {
+      return
+    }
+
+    if (unsavedDraftCards.length === 0) {
+      return
+    }
+
+    setIsSavingCard(true)
+    setErrorMessage(null)
+
+    const savedCardsBatch: KnowledgeCard[] = []
+
+    try {
+      for (const card of unsavedDraftCards) {
+        savedCardsBatch.push(await createSavedCardFromDraft(card))
+      }
+
+      setSavedCards((previousCards) =>
+        sortCardsBySource([...previousCards, ...savedCardsBatch]),
+      )
+      setCardNotes((previousNotes) => {
+        const nextNotes = { ...previousNotes }
+
+        for (const savedCard of savedCardsBatch) {
+          nextNotes[savedCard.id] = []
+        }
+
+        return nextNotes
+      })
+      await loadCourses(activeJob.course_id)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Save all failed.',
+      )
+
+      if (savedCardsBatch.length > 0) {
+        setSavedCards((previousCards) =>
+          sortCardsBySource([...previousCards, ...savedCardsBatch]),
+        )
+        setCardNotes((previousNotes) => {
+          const nextNotes = { ...previousNotes }
+
+          for (const savedCard of savedCardsBatch) {
+            nextNotes[savedCard.id] = []
+          }
+
+          return nextNotes
+        })
+      }
     } finally {
       setIsSavingCard(false)
     }
@@ -664,8 +1152,10 @@ function App() {
       )
 
       setSavedCards((previousCards) =>
-        previousCards.map((card) =>
-          card.id === updatedCard.id ? updatedCard : card,
+        sortCardsBySource(
+          previousCards.map((card) =>
+            card.id === updatedCard.id ? updatedCard : card,
+          ),
         ),
       )
       setEditingCardId(null)
@@ -693,6 +1183,21 @@ function App() {
       setSavedCards((previousCards) =>
         previousCards.filter((card) => card.id !== cardId),
       )
+      setCardNotes((previousNotes) => {
+        const nextNotes = { ...previousNotes }
+        delete nextNotes[cardId]
+
+        return nextNotes
+      })
+      setNoteForms((previousForms) => {
+        const nextForms = { ...previousForms }
+        delete nextForms[cardId]
+
+        return nextForms
+      })
+      if (job) {
+        await loadCourses(job.course_id)
+      }
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Card delete failed.',
@@ -702,10 +1207,404 @@ function App() {
     }
   }
 
+  async function deleteAllSavedCardsForJob() {
+    if (!job || savedCards.length === 0) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      'Delete all saved cards for this video?',
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setIsSavingCard(true)
+    setErrorMessage(null)
+
+    try {
+      await fetchJson<void>(
+        `/jobs/${job.id}/cards`,
+        {
+          method: 'DELETE',
+        },
+      )
+      setSavedCards([])
+      setCardNotes({})
+      setNoteForms({})
+      await loadCourses(job.course_id)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Saved cards delete failed.',
+      )
+    } finally {
+      setIsSavingCard(false)
+    }
+  }
+
+  async function deleteAllSavedCardsForCourse() {
+    if (!selectedCourse || selectedCourse.card_count === 0) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Delete all saved cards in "${selectedCourse.title}"?`,
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setIsSavingCard(true)
+    setErrorMessage(null)
+
+    try {
+      await fetchJson<void>(
+        `/courses/${selectedCourse.id}/cards`,
+        {
+          method: 'DELETE',
+        },
+      )
+
+      if (job?.course_id === selectedCourse.id) {
+        setSavedCards([])
+        setCardNotes({})
+        setNoteForms({})
+      }
+
+      await loadCourses(selectedCourse.id)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Course cards delete failed.',
+      )
+    } finally {
+      setIsSavingCard(false)
+    }
+  }
+
+  function getNoteForm(cardId: string): NoteForm {
+    return noteForms[cardId] ?? createDefaultNoteForm()
+  }
+
+  function updateNoteForm(
+    cardId: string,
+    changes: Partial<NoteForm>,
+  ) {
+    setNoteForms((previousForms) => ({
+      ...previousForms,
+      [cardId]: {
+        ...createDefaultNoteForm(),
+        ...previousForms[cardId],
+        ...changes,
+      },
+    }))
+  }
+
+  async function saveCardNote(cardId: string) {
+    const form = getNoteForm(cardId)
+
+    if (!form.body.trim()) {
+      return
+    }
+
+    setIsSavingNote(true)
+    setErrorMessage(null)
+
+    try {
+      const savedNote = await fetchJson<KnowledgeCardNote>(
+        `/cards/${cardId}/notes`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            note_type: form.note_type,
+            title: form.title || null,
+            body: form.body,
+            source: 'user',
+            sources: [],
+          }),
+        },
+      )
+
+      setCardNotes((previousNotes) => ({
+        ...previousNotes,
+        [cardId]: [...(previousNotes[cardId] ?? []), savedNote],
+      }))
+      setNoteForms((previousForms) => ({
+        ...previousForms,
+        [cardId]: createDefaultNoteForm(),
+      }))
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Note save failed.',
+      )
+    } finally {
+      setIsSavingNote(false)
+    }
+  }
+
+  function startEditingNote(note: KnowledgeCardNote) {
+    setEditingNoteId(note.id)
+    setNoteEditForm({
+      note_type: note.note_type,
+      title: note.title ?? '',
+      body: note.body,
+    })
+  }
+
+  async function saveEditedNote(note: KnowledgeCardNote) {
+    if (!noteEditForm || !noteEditForm.body.trim()) {
+      return
+    }
+
+    setIsSavingNote(true)
+    setErrorMessage(null)
+
+    try {
+      const updatedNote = await fetchJson<KnowledgeCardNote>(
+        `/card-notes/${note.id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            note_type: noteEditForm.note_type,
+            title: noteEditForm.title || null,
+            body: noteEditForm.body,
+          }),
+        },
+      )
+
+      setCardNotes((previousNotes) => ({
+        ...previousNotes,
+        [note.card_id]: (previousNotes[note.card_id] ?? []).map(
+          (existingNote) =>
+            existingNote.id === updatedNote.id
+              ? updatedNote
+              : existingNote,
+        ),
+      }))
+      setEditingNoteId(null)
+      setNoteEditForm(null)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Note update failed.',
+      )
+    } finally {
+      setIsSavingNote(false)
+    }
+  }
+
+  async function deleteCardNote(note: KnowledgeCardNote) {
+    setIsSavingNote(true)
+    setErrorMessage(null)
+
+    try {
+      await fetchJson<void>(
+        `/card-notes/${note.id}`,
+        {
+          method: 'DELETE',
+        },
+      )
+
+      setCardNotes((previousNotes) => ({
+        ...previousNotes,
+        [note.card_id]: (previousNotes[note.card_id] ?? []).filter(
+          (existingNote) => existingNote.id !== note.id,
+        ),
+      }))
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Note delete failed.',
+      )
+    } finally {
+      setIsSavingNote(false)
+    }
+  }
+
+  function renderCardNotes(card: KnowledgeCard) {
+    const notes = cardNotes[card.id] ?? []
+    const form = getNoteForm(card.id)
+
+    return (
+      <section className="notes-block">
+        <div className="notes-heading">
+          <div className="claims-title">Notes</div>
+          <span>{notes.length}</span>
+        </div>
+        {notes.length > 0 && (
+          <div className="note-list">
+            {notes.map((note) => {
+              const isEditingNote = editingNoteId === note.id
+
+              return (
+                <article className="note-item" key={note.id}>
+                  {isEditingNote && noteEditForm ? (
+                    <div className="note-form">
+                      <input
+                        value={noteEditForm.title}
+                        onChange={(event) =>
+                          setNoteEditForm({
+                            ...noteEditForm,
+                            title: event.target.value,
+                          })
+                        }
+                      />
+                      <select
+                        value={noteEditForm.note_type}
+                        onChange={(event) =>
+                          setNoteEditForm({
+                            ...noteEditForm,
+                            note_type: event.target.value as
+                              KnowledgeCardNoteType,
+                          })
+                        }
+                      >
+                        <option value="user_note">user note</option>
+                        <option value="llm_explanation">
+                          llm explanation
+                        </option>
+                        <option value="web_tutorial">web tutorial</option>
+                        <option value="practice_question">
+                          practice question
+                        </option>
+                      </select>
+                      <textarea
+                        value={noteEditForm.body}
+                        onChange={(event) =>
+                          setNoteEditForm({
+                            ...noteEditForm,
+                            body: event.target.value,
+                          })
+                        }
+                      />
+                      <div className="card-actions">
+                        <button
+                          type="button"
+                          disabled={
+                            isSavingNote || !noteEditForm.body.trim()
+                          }
+                          onClick={() => void saveEditedNote(note)}
+                        >
+                          Save note
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingNoteId(null)
+                            setNoteEditForm(null)
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="note-heading">
+                        <strong>{note.title ?? note.note_type}</strong>
+                        <span>{note.source}</span>
+                      </div>
+                      <p>{note.body}</p>
+                      {note.sources.length > 0 && (
+                        <div className="note-sources">
+                          {note.sources.map((source, index) => (
+                            <span key={`${source.url ?? source.title}-${index}`}>
+                              {source.title ?? source.url}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="card-actions">
+                        <button
+                          type="button"
+                          disabled={isSavingNote}
+                          onClick={() => startEditingNote(note)}
+                        >
+                          Edit note
+                        </button>
+                        <button
+                          type="button"
+                          className="danger-button"
+                          disabled={isSavingNote}
+                          onClick={() => void deleteCardNote(note)}
+                        >
+                          Delete note
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </article>
+              )
+            })}
+          </div>
+        )}
+        <div className="note-form">
+          <input
+            value={form.title}
+            onChange={(event) =>
+              updateNoteForm(card.id, {
+                title: event.target.value,
+              })
+            }
+            placeholder="Note title"
+          />
+          <select
+            value={form.note_type}
+            onChange={(event) =>
+              updateNoteForm(card.id, {
+                note_type: event.target.value as KnowledgeCardNoteType,
+              })
+            }
+          >
+            <option value="user_note">user note</option>
+            <option value="llm_explanation">llm explanation</option>
+            <option value="web_tutorial">web tutorial</option>
+            <option value="practice_question">practice question</option>
+          </select>
+          <textarea
+            value={form.body}
+            onChange={(event) =>
+              updateNoteForm(card.id, {
+                body: event.target.value,
+              })
+            }
+            placeholder="Add a note"
+          />
+          <div className="card-actions">
+            <button
+              type="button"
+              disabled={isSavingNote || !form.body.trim()}
+              onClick={() => void saveCardNote(card.id)}
+            >
+              Add note
+            </button>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
   useEffect(() => {
     void checkLlmStatus()
-    void loadJobs()
+    void loadCourses()
   }, [])
+
+  useEffect(() => {
+    if (!selectedCourseId) {
+      return
+    }
+
+    void loadJobs(selectedCourseId)
+  }, [selectedCourseId])
 
   useEffect(() => {
     if (!job || !transcript || !selectedRange) {
@@ -767,7 +1666,8 @@ function App() {
       void refreshJob(job.id)
         .then((nextJob) => {
           if (nextJob.status === 'completed') {
-            void loadJobs()
+            void loadJobs(nextJob.course_id)
+            void loadCourses(nextJob.course_id)
             void loadSavedCards(nextJob.id)
             return loadTranscript(nextJob.id)
           }
@@ -797,6 +1697,7 @@ function App() {
   const canRetry = job?.status === 'failed' && !isStarting
   const canGenerateCards =
     selectedSegments.length > 0 && !isDraftingCards && !isLoadingContext
+  const canCancelCards = isDraftingCards && cardGenerationAbortRef.current
 
   return (
     <main className="app-shell">
@@ -847,6 +1748,9 @@ function App() {
       <section className="workspace">
         <div className="media-pane">
           <div className="toolbar">
+            <div className="current-course-label">
+              {selectedCourse?.title ?? 'No course'}
+            </div>
             <label className="file-picker">
               <input
                 type="file"
@@ -929,60 +1833,172 @@ function App() {
                 >
                   {isDraftingCards ? 'Generating' : 'Generate cards'}
                 </button>
+                {isDraftingCards && (
+                  <button
+                    type="button"
+                    disabled={!canCancelCards}
+                    onClick={cancelCardGeneration}
+                  >
+                    Cancel
+                  </button>
+                )}
               </div>
+              {generationStatus && (
+                <div className="generation-status">
+                  <span>{generationStatus}</span>
+                  {isDraftingCards && (
+                    <small>
+                      Local models can take a while on CPU.
+                    </small>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {cardDraft && (
             <section className="cards-panel">
-              <div className="panel-title">
-                Draft cards - {cardDraft.model}
+              <div className="card-panel-heading">
+                <div>
+                  <div className="panel-title">
+                    Draft cards - {cardDraft.model}
+                  </div>
+                  <div className="panel-subtitle">
+                    {unsavedDraftCards.length} unsaved /{' '}
+                    {cardDraft.cards.length} total
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={
+                    isSavingCard || unsavedDraftCards.length === 0
+                  }
+                  onClick={() => void saveAllDraftCards()}
+                >
+                  {isSavingCard ? 'Saving' : 'Save all'}
+                </button>
+              </div>
+              <div className="generation-metadata">
+                <div>
+                  <span>Elapsed</span>
+                  <strong>
+                    {formatElapsed(
+                      cardDraft.generation_metadata.elapsed_seconds,
+                    )}
+                  </strong>
+                </div>
+                <div>
+                  <span>Context</span>
+                  <strong>
+                    {cardDraft.generation_metadata.selected_segments_count}{' '}
+                    segments /{' '}
+                    {
+                      cardDraft.generation_metadata
+                        .selected_context_characters
+                    }{' '}
+                    chars
+                  </strong>
+                </div>
+                <div>
+                  <span>Cards</span>
+                  <strong>
+                    {cardDraft.generation_metadata.returned_card_count} /{' '}
+                    {cardDraft.generation_metadata.requested_card_count}
+                  </strong>
+                </div>
+                <div>
+                  <span>Claims</span>
+                  <strong>
+                    {cardDraft.generation_metadata.grounded_claim_count}{' '}
+                    grounded
+                  </strong>
+                </div>
+                <div>
+                  <span>Dropped</span>
+                  <strong>
+                    {cardDraft.generation_metadata.dropped_claim_count}
+                  </strong>
+                </div>
               </div>
               <div className="card-list">
-                {cardDraft.cards.map((card, index) => (
-                  <article
-                    className="knowledge-card"
-                    key={`${card.title}-${index}`}
-                  >
-                    <div className="card-heading">
-                      <h3>{card.title}</h3>
-                      <span>{card.difficulty}</span>
-                    </div>
-                    <p>{card.summary}</p>
-                    <ul>
-                      {card.key_points.map((point) => (
-                        <li key={point}>{point}</li>
-                      ))}
-                    </ul>
-                    <ClaimsBlock
-                      claims={card.claims}
-                      unsupportedTerms={card.unsupported_terms}
-                    />
-                    <div className="qa-block">
-                      <strong>{card.question}</strong>
-                      <p>{card.answer}</p>
-                    </div>
-                    <div className="source-range">
-                      {formatTime(card.source_start_seconds)} -{' '}
-                      {formatTime(card.source_end_seconds)}
-                    </div>
-                    <div className="card-actions">
+                {cardDraft.cards.map((card, index) => {
+                  const isSaved = savedCardSignatures.has(
+                    cardSignature(card),
+                  )
+
+                  return (
+                    <article
+                      className="knowledge-card"
+                      key={`${card.title}-${index}`}
+                    >
+                      <div className="card-heading">
+                        <h3>{card.title}</h3>
+                        <div className="card-badges">
+                          <span className={`card-status ${
+                            isSaved ? 'saved' : 'unsaved'
+                          }`}
+                          >
+                            {isSaved ? 'Saved' : 'Unsaved'}
+                          </span>
+                          <span>{card.difficulty}</span>
+                        </div>
+                      </div>
+                      <p>{card.summary}</p>
+                      <ul>
+                        {card.key_points.map((point) => (
+                          <li key={point}>{point}</li>
+                        ))}
+                      </ul>
+                      <ClaimsBlock
+                        claims={card.claims}
+                        unsupportedTerms={card.unsupported_terms}
+                        onJumpToTime={jumpToTime}
+                      />
+                      <div className="qa-block">
+                        <strong>{card.question}</strong>
+                        <p>{card.answer}</p>
+                      </div>
                       <button
                         type="button"
-                        disabled={isSavingCard}
-                        onClick={() => void saveDraftCard(card)}
+                        className="source-range source-jump"
+                        onClick={() => jumpToTime(card.source_start_seconds)}
                       >
-                        Save
+                        {formatTime(card.source_start_seconds)} -{' '}
+                        {formatTime(card.source_end_seconds)}
                       </button>
-                    </div>
-                  </article>
-                ))}
+                      <div className="card-actions">
+                        <button
+                          type="button"
+                          disabled={isSavingCard || isSaved}
+                          onClick={() => void saveDraftCard(card)}
+                        >
+                          {isSaved ? 'Saved' : 'Save'}
+                        </button>
+                      </div>
+                    </article>
+                  )
+                })}
               </div>
             </section>
           )}
 
           <section className="cards-panel">
-            <div className="panel-title">Saved cards</div>
+            <div className="card-panel-heading">
+              <div>
+                <div className="panel-title">Saved cards</div>
+                <div className="panel-subtitle">
+                  {savedCards.length} cards sorted by source time
+                </div>
+              </div>
+              <button
+                type="button"
+                className="danger-button"
+                disabled={isSavingCard || savedCards.length === 0}
+                onClick={() => void deleteAllSavedCardsForJob()}
+              >
+                Delete all
+              </button>
+            </div>
             <div className="card-list">
               {savedCards.length ? (
                 savedCards.map((card) => {
@@ -1074,7 +2090,12 @@ function App() {
                         <>
                           <div className="card-heading">
                             <h3>{card.title}</h3>
-                            <span>{card.difficulty}</span>
+                            <div className="card-badges">
+                              <span className="card-status saved">
+                                Saved
+                              </span>
+                              <span>{card.difficulty}</span>
+                            </div>
                           </div>
                           <p>{card.summary}</p>
                           <ul>
@@ -1085,6 +2106,7 @@ function App() {
                           <ClaimsBlock
                             claims={card.claims}
                             unsupportedTerms={card.unsupported_terms}
+                            onJumpToTime={jumpToTime}
                           />
                           {(card.question || card.answer) && (
                             <div className="qa-block">
@@ -1092,10 +2114,17 @@ function App() {
                               {card.answer && <p>{card.answer}</p>}
                             </div>
                           )}
-                          <div className="source-range">
+                          <button
+                            type="button"
+                            className="source-range source-jump"
+                            onClick={() =>
+                              jumpToTime(card.source_start_seconds)
+                            }
+                          >
                             {formatTime(card.source_start_seconds)} -{' '}
                             {formatTime(card.source_end_seconds)}
-                          </div>
+                          </button>
+                          {renderCardNotes(card)}
                           <div className="card-actions">
                             <button
                               type="button"
@@ -1124,10 +2153,99 @@ function App() {
         </div>
 
         <aside className="side-pane">
+          <section className="courses-panel">
+            <div className="panel-heading-row">
+              <h2>Courses</h2>
+              <button type="button" onClick={() => void loadCourses()}>
+                {isLoadingCourses ? 'Loading' : 'Refresh'}
+              </button>
+            </div>
+            <div className="course-create-row">
+              <input
+                value={newCourseTitle}
+                onChange={(event) => setNewCourseTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    void createCourse()
+                  }
+                }}
+                placeholder="New course"
+              />
+              <button
+                type="button"
+                disabled={isSavingCourse || !newCourseTitle.trim()}
+                onClick={() => void createCourse()}
+              >
+                New
+              </button>
+            </div>
+            <div className="course-list">
+              {courses.length ? (
+                courses.map((course) => (
+                  <div
+                    key={course.id}
+                    className={[
+                      'course-list-row',
+                      course.id === selectedCourseId ? 'selected' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    <button
+                      type="button"
+                      className="course-list-item"
+                      onClick={() => selectCourse(course.id)}
+                    >
+                      <span>{course.title}</span>
+                      <small>
+                        {course.job_count} videos / {course.card_count} cards
+                      </small>
+                    </button>
+                    <div className="course-row-actions">
+                      <button
+                        type="button"
+                        disabled={isSavingCourse}
+                        onClick={() => void renameCourse(course)}
+                      >
+                        Rename
+                      </button>
+                      {course.id !== DEFAULT_COURSE_ID && (
+                        <button
+                          type="button"
+                          className="danger-button"
+                          disabled={isSavingCourse}
+                          onClick={() => void deleteCourse(course)}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="empty-list">No courses</div>
+              )}
+            </div>
+            <button
+              type="button"
+              className="danger-button course-clear-button"
+              disabled={
+                isSavingCard ||
+                !selectedCourse ||
+                selectedCourse.card_count === 0
+              }
+              onClick={() => void deleteAllSavedCardsForCourse()}
+            >
+              Delete course cards
+            </button>
+          </section>
           <section className="jobs-panel">
             <div className="panel-heading-row">
               <h2>Videos</h2>
-              <button type="button" onClick={() => void loadJobs()}>
+              <button
+                type="button"
+                onClick={() => void loadJobs(selectedCourseId)}
+              >
                 {isLoadingJobs ? 'Loading' : 'Refresh'}
               </button>
             </div>

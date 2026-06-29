@@ -1,5 +1,7 @@
 import json
 import re
+from dataclasses import dataclass
+from time import perf_counter
 from collections.abc import Iterable
 from typing import Literal, Protocol
 
@@ -7,11 +9,13 @@ from pydantic import BaseModel, Field, ValidationError
 
 from . import job_service
 from .knowledge_card import KnowledgeCardClaim, KnowledgeCardEvidence
-from .llm_client import LLMClientError, LLMMessage
+from .llm_client import LLMClientError, LLMMessage, LLMTimeoutError
 from .settings import LLMSettings
 
 
 Difficulty = Literal["easy", "medium", "hard"]
+MAX_CONTEXT_CHARACTERS = 4000
+MAX_SELECTED_SEGMENTS = 24
 
 THINK_BLOCK_RE = re.compile(
     r"<think>.*?</think>",
@@ -84,6 +88,14 @@ class CardGenerationError(CardServiceError):
     pass
 
 
+class CardGenerationTimeoutError(CardGenerationError):
+    pass
+
+
+class NoGroundedClaimsError(CardGenerationError):
+    pass
+
+
 class CardOutputParseError(CardServiceError):
     pass
 
@@ -110,6 +122,24 @@ class KnowledgeCardDraft(BaseModel):
     source_end_seconds: float
 
 
+class CardGenerationMetadata(BaseModel):
+    provider: str
+    model: str
+    elapsed_seconds: float
+    input_characters: int
+    selected_context_characters: int
+    selected_segments_count: int
+    requested_card_count: int
+    raw_card_count: int
+    returned_card_count: int
+    raw_claim_count: int
+    grounded_claim_count: int
+    dropped_claim_count: int
+    unsupported_terms_count: int
+    max_context_characters: int
+    max_selected_segments: int
+
+
 class CardDraftResponse(BaseModel):
     job_id: str
     source_video: str
@@ -117,6 +147,7 @@ class CardDraftResponse(BaseModel):
     end_seconds: float
     provider: str
     model: str
+    generation_metadata: CardGenerationMetadata
     cards: list[KnowledgeCardDraft]
 
 
@@ -139,11 +170,23 @@ class _LLMCardPayload(BaseModel):
     cards: list[_LLMKnowledgeCard]
 
 
+@dataclass(frozen=True)
+class _GroundingResult:
+    cards: list[KnowledgeCardDraft]
+    raw_card_count: int
+    raw_claim_count: int
+    grounded_claim_count: int
+    dropped_claim_count: int
+    unsupported_terms_count: int
+
+
 def draft_knowledge_cards(
     request: CardDraftRequest,
     *,
     llm_client: CardLLMClient,
 ) -> CardDraftResponse:
+    started_at = perf_counter()
+
     if request.end_seconds <= request.start_seconds:
         raise InvalidCardDraftRequestError(
             "Card draft end must be greater than start."
@@ -160,11 +203,18 @@ def draft_knowledge_cards(
             "Selected transcript context is empty."
         )
 
+    _validate_context_window(context)
+
     messages = _build_generation_messages(
         request=request,
         context=context,
     )
     selected_model = _normalize_model_name(request.model)
+    response_model = selected_model or llm_client.settings.model
+    input_characters = sum(
+        len(message.content)
+        for message in messages
+    )
 
     raw_output = _call_llm(
         llm_client,
@@ -185,16 +235,16 @@ def draft_knowledge_cards(
         )
         payload = _parse_card_payload(repaired_output)
 
-    cards = _build_grounded_cards(
+    grounding_result = _build_grounded_cards(
         payload.cards,
         context,
         limit=request.card_count,
     )
 
-    if not cards:
-        raise CardGenerationError(
-            "Local LLM generated cards that were not grounded in the "
-            "selected transcript. Try a shorter window or a larger model."
+    if not grounding_result.cards:
+        raise NoGroundedClaimsError(
+            "No grounded claims were found in the model output. Try "
+            "selecting fewer transcript segments or using a larger model."
         )
 
     return CardDraftResponse(
@@ -203,8 +253,27 @@ def draft_knowledge_cards(
         start_seconds=context.start_seconds,
         end_seconds=context.end_seconds,
         provider=llm_client.settings.provider,
-        model=selected_model or llm_client.settings.model,
-        cards=cards,
+        model=response_model,
+        generation_metadata=CardGenerationMetadata(
+            provider=llm_client.settings.provider,
+            model=response_model,
+            elapsed_seconds=round(perf_counter() - started_at, 3),
+            input_characters=input_characters,
+            selected_context_characters=len(context.text),
+            selected_segments_count=len(context.segments),
+            requested_card_count=request.card_count,
+            raw_card_count=grounding_result.raw_card_count,
+            returned_card_count=len(grounding_result.cards),
+            raw_claim_count=grounding_result.raw_claim_count,
+            grounded_claim_count=grounding_result.grounded_claim_count,
+            dropped_claim_count=grounding_result.dropped_claim_count,
+            unsupported_terms_count=(
+                grounding_result.unsupported_terms_count
+            ),
+            max_context_characters=MAX_CONTEXT_CHARACTERS,
+            max_selected_segments=MAX_SELECTED_SEGMENTS,
+        ),
+        cards=grounding_result.cards,
     )
 
 
@@ -222,8 +291,15 @@ def _call_llm(
             max_tokens=max_tokens,
             response_format={"type": "json_object"},
         )
+    except LLMTimeoutError as exc:
+        raise CardGenerationTimeoutError(
+            "Local LLM request timed out. Try selecting fewer transcript "
+            "segments or using a smaller/faster model."
+        ) from exc
     except LLMClientError as exc:
-        raise CardGenerationError(str(exc)) from exc
+        raise CardGenerationError(
+            f"Local LLM unavailable: {exc}"
+        ) from exc
 
     if not output.strip():
         retry_max_tokens = max(
@@ -238,8 +314,15 @@ def _call_llm(
                 max_tokens=max(retry_max_tokens, max_tokens * 2),
                 response_format={"type": "json_object"},
             )
+        except LLMTimeoutError as exc:
+            raise CardGenerationTimeoutError(
+                "Local LLM request timed out while retrying empty output. "
+                "Try selecting fewer transcript segments."
+            ) from exc
         except LLMClientError as exc:
-            raise CardGenerationError(str(exc)) from exc
+            raise CardGenerationError(
+                f"Local LLM unavailable: {exc}"
+            ) from exc
 
     if not output.strip():
         raise CardGenerationError(
@@ -248,6 +331,28 @@ def _call_llm(
         )
 
     return output
+
+
+def _validate_context_window(
+    context: job_service.TranscriptContext,
+) -> None:
+    context_characters = len(context.text)
+    segment_count = len(context.segments)
+
+    if context_characters > MAX_CONTEXT_CHARACTERS:
+        raise InvalidCardDraftRequestError(
+            "Selected context is too long: "
+            f"{context_characters} characters. Please select fewer "
+            f"transcript segments. Current limit is "
+            f"{MAX_CONTEXT_CHARACTERS} characters."
+        )
+
+    if segment_count > MAX_SELECTED_SEGMENTS:
+        raise InvalidCardDraftRequestError(
+            "Selected context has too many segments: "
+            f"{segment_count}. Please select fewer transcript segments. "
+            f"Current limit is {MAX_SELECTED_SEGMENTS} segments."
+        )
 
 
 def _card_generation_max_tokens(
@@ -273,23 +378,17 @@ def _build_generation_messages(
     focus = request.focus.strip() if request.focus else "general review"
 
     system_prompt = """
-You are a course knowledge-card generator.
-Convert selected transcript evidence into concise, reviewable study cards.
+Create compact study cards from transcript evidence.
 
 Rules:
-1. Return valid JSON only.
-2. Do not return Markdown.
-3. Do not explain the JSON.
-4. Do not output <think> content.
-5. Use the same language as the transcript unless the user focus asks otherwise.
-6. Every card must be grounded only in the provided transcript.
-7. Do not invent facts outside the transcript.
-8. Every card must include at least one claim.
-9. Every claim must include evidence_quotes copied exactly from one transcript
-   line, without timestamps.
-10. Each title, summary, question, and answer must use concepts that appear in
-    the transcript evidence.
-11. If the transcript does not contain enough evidence, return {"cards": []}.
+1. JSON only. No Markdown, explanations, or <think>.
+2. Use the transcript language unless the user focus asks otherwise.
+3. Use only facts in the transcript.
+4. Return no more than the requested number of cards.
+5. Each card needs 1-2 atomic claims.
+6. Each claim needs 1-2 evidence_quotes copied exactly from one transcript line.
+7. Evidence quotes must not include timestamps.
+8. If evidence is weak, return {"cards": []}.
 """.strip()
 
     user_prompt = f"""
@@ -425,14 +524,22 @@ def _build_grounded_cards(
     context: job_service.TranscriptContext,
     *,
     limit: int,
-) -> list[KnowledgeCardDraft]:
+) -> _GroundingResult:
     grounded_cards: list[KnowledgeCardDraft] = []
+    raw_claim_count = sum(
+        len(card.claims)
+        for card in llm_cards
+    )
+    grounded_claim_count = 0
+    unsupported_terms_count = 0
 
     for llm_card in llm_cards:
         claims = _ground_claims(llm_card.claims, context.segments)
 
         if not claims:
             continue
+
+        grounded_claim_count += len(claims)
 
         evidence_items = [
             evidence
@@ -448,6 +555,13 @@ def _build_grounded_cards(
             for evidence in evidence_items
         )
 
+        unsupported_terms = _find_unsupported_terms(
+            llm_card,
+            claims,
+            context.segments,
+        )
+        unsupported_terms_count += len(unsupported_terms)
+
         grounded_cards.append(
             KnowledgeCardDraft(
                 title=llm_card.title.strip(),
@@ -458,11 +572,7 @@ def _build_grounded_cards(
                     if point.strip()
                 ],
                 claims=claims,
-                unsupported_terms=_find_unsupported_terms(
-                    llm_card,
-                    claims,
-                    context.segments,
-                ),
+                unsupported_terms=unsupported_terms,
                 question=llm_card.question.strip(),
                 answer=llm_card.answer.strip(),
                 difficulty=llm_card.difficulty,
@@ -474,7 +584,14 @@ def _build_grounded_cards(
         if len(grounded_cards) >= limit:
             break
 
-    return grounded_cards
+    return _GroundingResult(
+        cards=grounded_cards,
+        raw_card_count=len(llm_cards),
+        raw_claim_count=raw_claim_count,
+        grounded_claim_count=grounded_claim_count,
+        dropped_claim_count=max(raw_claim_count - grounded_claim_count, 0),
+        unsupported_terms_count=unsupported_terms_count,
+    )
 
 
 def _ground_claims(

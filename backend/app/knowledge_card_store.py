@@ -171,6 +171,26 @@ def list_cards_for_job(job_id: str) -> list[KnowledgeCard]:
     return [_row_to_card(row) for row in rows]
 
 
+def list_cards_for_course(course_id: str) -> list[KnowledgeCard]:
+    ensure_db()
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT knowledge_cards.*
+            FROM knowledge_cards
+            INNER JOIN jobs ON jobs.id = knowledge_cards.job_id
+            WHERE jobs.course_id = ?
+            ORDER BY
+                knowledge_cards.source_start_seconds ASC,
+                knowledge_cards.created_at ASC
+            """,
+            (course_id,),
+        ).fetchall()
+
+    return [_row_to_card(row) for row in rows]
+
+
 def update_card(card: KnowledgeCard) -> None:
     ensure_db()
 
@@ -217,6 +237,10 @@ def delete_card(card_id: str) -> None:
 
     with connect() as conn:
         conn.execute(
+            "DELETE FROM knowledge_card_notes WHERE card_id = ?",
+            (card_id,),
+        )
+        conn.execute(
             "DELETE FROM knowledge_cards WHERE id = ?",
             (card_id,),
         )
@@ -227,8 +251,44 @@ def delete_cards_for_job(job_id: str) -> None:
 
     with connect() as conn:
         conn.execute(
+            """
+            DELETE FROM knowledge_card_notes
+            WHERE card_id IN (
+                SELECT id FROM knowledge_cards WHERE job_id = ?
+            )
+            """,
+            (job_id,),
+        )
+        conn.execute(
             "DELETE FROM knowledge_cards WHERE job_id = ?",
             (job_id,),
+        )
+
+
+def delete_cards_for_course(course_id: str) -> None:
+    ensure_db()
+
+    with connect() as conn:
+        conn.execute(
+            """
+            DELETE FROM knowledge_card_notes
+            WHERE card_id IN (
+                SELECT knowledge_cards.id
+                FROM knowledge_cards
+                INNER JOIN jobs ON jobs.id = knowledge_cards.job_id
+                WHERE jobs.course_id = ?
+            )
+            """,
+            (course_id,),
+        )
+        conn.execute(
+            """
+            DELETE FROM knowledge_cards
+            WHERE job_id IN (
+                SELECT id FROM jobs WHERE course_id = ?
+            )
+            """,
+            (course_id,),
         )
 
 
@@ -236,4 +296,5 @@ def clear_cards() -> None:
     ensure_db()
 
     with connect() as conn:
+        conn.execute("DELETE FROM knowledge_card_notes")
         conn.execute("DELETE FROM knowledge_cards")

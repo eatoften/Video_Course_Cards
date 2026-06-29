@@ -6,6 +6,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
+from .course import DEFAULT_COURSE_ID
+from .course_store import get_course
 from .job import VideoJob, VideoJobStatus, utc_now
 from .job_store import (
     create_job,
@@ -58,6 +60,10 @@ class JobNotFoundError(JobServiceError):
     pass
 
 
+class CourseNotFoundError(JobServiceError):
+    pass
+
+
 class InvalidJobStatusError(JobServiceError):
     pass
 
@@ -85,6 +91,7 @@ def create_video_job(
     original_filename: str | None,
     content_type: str | None,
     upload_dir: Path,
+    course_id: str | None = None,
 ) -> VideoJob:
     if not original_filename:
         raise MissingFilenameError(
@@ -102,6 +109,14 @@ def create_video_job(
         raise UnsupportedContentTypeError(
             f"Unsupported content type: {content_type}"
         )
+
+    target_course_id = (course_id or DEFAULT_COURSE_ID).strip()
+
+    if not target_course_id:
+        target_course_id = DEFAULT_COURSE_ID
+
+    if get_course(target_course_id) is None:
+        raise CourseNotFoundError("Course not found.")
 
     video_id = uuid4().hex
     destination = upload_dir / f"{video_id}{suffix}"
@@ -128,6 +143,7 @@ def create_video_job(
     now = utc_now()
     job = VideoJob(
         id=video_id,
+        course_id=target_course_id,
         video_path=destination,
         status=VideoJobStatus.uploaded,
         original_filename=original_filename,

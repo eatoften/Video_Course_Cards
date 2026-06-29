@@ -2,14 +2,18 @@ from contextlib import asynccontextmanager
 from functools import cache
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile, status
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, UploadFile
+from fastapi import status
 from fastapi import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import card_service
+from . import course_service
 from . import job_service
 from . import knowledge_card_service
+from . import knowledge_card_note_service
+from .course import Course, CourseCreate, CourseUpdate
 from .db import init_db
 from .job import VideoJob, VideoJobStatus
 from .job_service import TranscriptContext
@@ -17,6 +21,11 @@ from .knowledge_card import (
     KnowledgeCard,
     KnowledgeCardCreate,
     KnowledgeCardUpdate,
+)
+from .knowledge_card_note import (
+    KnowledgeCardNote,
+    KnowledgeCardNoteCreate,
+    KnowledgeCardNoteUpdate,
 )
 from .llm_client import LLMModelList, LLMStatus, LocalLLMClient
 from .transcription import FasterWhisperTranscriber, TranscriptionResult
@@ -32,6 +41,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 class VideoUploadResponse(BaseModel):
     id: str
+    course_id: str
     filename: str
     stored_name: str
     size_bytes: int
@@ -58,7 +68,13 @@ def raise_http_error(exc: job_service.JobServiceError) -> None:
             detail=str(exc),
         ) from exc
 
-    if isinstance(exc, job_service.JobNotFoundError):
+    if isinstance(
+        exc,
+        (
+            job_service.JobNotFoundError,
+            job_service.CourseNotFoundError,
+        ),
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
@@ -92,6 +108,12 @@ def raise_card_http_error(exc: card_service.CardServiceError) -> None:
     if isinstance(exc, card_service.InvalidCardDraftRequestError):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(exc, card_service.CardGenerationTimeoutError):
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail=str(exc),
         ) from exc
 
@@ -131,6 +153,61 @@ def raise_knowledge_card_http_error(
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Unexpected knowledge card service error.",
+    ) from exc
+
+
+def raise_knowledge_card_note_http_error(
+    exc: knowledge_card_note_service.KnowledgeCardNoteServiceError,
+) -> None:
+    if isinstance(
+        exc,
+        (
+            knowledge_card_note_service.KnowledgeCardNoteNotFoundError,
+            knowledge_card_note_service.KnowledgeCardForNoteNotFoundError,
+        ),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(
+        exc,
+        knowledge_card_note_service.InvalidKnowledgeCardNoteError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unexpected knowledge card note service error.",
+    ) from exc
+
+
+def raise_course_http_error(exc: course_service.CourseServiceError) -> None:
+    if isinstance(exc, course_service.CourseNotFoundError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(
+        exc,
+        (
+            course_service.InvalidCourseError,
+            course_service.DefaultCourseDeleteError,
+        ),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unexpected course service error.",
     ) from exc
 
 
@@ -213,6 +290,7 @@ async def inspect_video(video: UploadFile):
 )
 def upload_video(
     video: UploadFile,
+    course_id: str | None = Form(default=None),
 ) -> VideoUploadResponse:
     try:
         job = job_service.create_video_job(
@@ -220,17 +298,101 @@ def upload_video(
             original_filename=video.filename,
             content_type=video.content_type,
             upload_dir=UPLOAD_DIR,
+            course_id=course_id,
         )
     except job_service.JobServiceError as exc:
         raise_http_error(exc)
 
     return VideoUploadResponse(
         id=job.id,
+        course_id=job.course_id,
         filename=job.original_filename or "",
         stored_name=job.stored_name or "",
         size_bytes=job.size_bytes or 0,
         status=job.status,
     )
+
+
+@app.get(
+    "/courses",
+    response_model=list[Course],
+)
+def list_courses() -> list[Course]:
+    return course_service.list_video_courses()
+
+
+@app.post(
+    "/courses",
+    response_model=Course,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_course(request: CourseCreate) -> Course:
+    try:
+        return course_service.create_video_course(request)
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+
+
+@app.patch(
+    "/courses/{course_id}",
+    response_model=Course,
+)
+def update_course(
+    course_id: str,
+    request: CourseUpdate,
+) -> Course:
+    try:
+        return course_service.update_video_course(course_id, request)
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+
+
+@app.delete(
+    "/courses/{course_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_course(course_id: str) -> Response:
+    try:
+        course_service.delete_video_course(course_id)
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get(
+    "/courses/{course_id}/jobs",
+    response_model=list[VideoJob],
+)
+def list_course_jobs(course_id: str) -> list[VideoJob]:
+    try:
+        return course_service.list_course_jobs(course_id)
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+
+
+@app.get(
+    "/courses/{course_id}/cards",
+    response_model=list[KnowledgeCard],
+)
+def list_course_cards(course_id: str) -> list[KnowledgeCard]:
+    try:
+        return course_service.list_course_cards(course_id)
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+
+
+@app.delete(
+    "/courses/{course_id}/cards",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_course_cards(course_id: str) -> Response:
+    try:
+        course_service.delete_all_course_cards(course_id)
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get(
@@ -387,6 +549,72 @@ def save_job_card(
         raise_http_error(exc)
     except knowledge_card_service.KnowledgeCardServiceError as exc:
         raise_knowledge_card_http_error(exc)
+
+
+@app.delete(
+    "/jobs/{job_id}/cards",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_job_cards(job_id: str) -> Response:
+    try:
+        knowledge_card_service.delete_all_job_cards(job_id)
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get(
+    "/cards/{card_id}/notes",
+    response_model=list[KnowledgeCardNote],
+)
+def list_card_notes(card_id: str) -> list[KnowledgeCardNote]:
+    try:
+        return knowledge_card_note_service.list_card_notes(card_id)
+    except knowledge_card_note_service.KnowledgeCardNoteServiceError as exc:
+        raise_knowledge_card_note_http_error(exc)
+
+
+@app.post(
+    "/cards/{card_id}/notes",
+    response_model=KnowledgeCardNote,
+    status_code=status.HTTP_201_CREATED,
+)
+def save_card_note(
+    card_id: str,
+    request: KnowledgeCardNoteCreate,
+) -> KnowledgeCardNote:
+    try:
+        return knowledge_card_note_service.save_card_note(card_id, request)
+    except knowledge_card_note_service.KnowledgeCardNoteServiceError as exc:
+        raise_knowledge_card_note_http_error(exc)
+
+
+@app.patch(
+    "/card-notes/{note_id}",
+    response_model=KnowledgeCardNote,
+)
+def update_card_note(
+    note_id: str,
+    request: KnowledgeCardNoteUpdate,
+) -> KnowledgeCardNote:
+    try:
+        return knowledge_card_note_service.update_card_note(note_id, request)
+    except knowledge_card_note_service.KnowledgeCardNoteServiceError as exc:
+        raise_knowledge_card_note_http_error(exc)
+
+
+@app.delete(
+    "/card-notes/{note_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_card_note(note_id: str) -> Response:
+    try:
+        knowledge_card_note_service.delete_card_note(note_id)
+    except knowledge_card_note_service.KnowledgeCardNoteServiceError as exc:
+        raise_knowledge_card_note_http_error(exc)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.patch(

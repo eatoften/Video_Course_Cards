@@ -12,6 +12,7 @@ from .knowledge_card import (
 from .knowledge_card_store import (
     create_card,
     delete_card,
+    delete_cards_for_job,
     get_card,
     list_cards_for_job,
     update_card,
@@ -145,6 +146,12 @@ def delete_saved_card(card_id: str) -> None:
         raise KnowledgeCardNotFoundError("Knowledge card not found.")
 
     delete_card(card_id)
+
+
+def delete_all_job_cards(job_id: str) -> None:
+    get_video_job(job_id)
+
+    delete_cards_for_job(job_id)
 
 
 def _validate_time_range(

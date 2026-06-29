@@ -3,6 +3,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from .course import DEFAULT_COURSE_ID, DEFAULT_COURSE_TITLE
+
 DEFAULT_DB_PATH = (
     Path(__file__).resolve().parent.parent
     / "data"
@@ -13,6 +15,7 @@ _db_path = DEFAULT_DB_PATH
 _initialized_paths: set[Path] = set()
 
 JOB_COLUMNS: dict[str, str] = {
+    "course_id": "TEXT",
     "original_filename": "TEXT",
     "stored_name": "TEXT",
     "size_bytes": "INTEGER",
@@ -81,8 +84,44 @@ def init_db() -> None:
     with connect() as conn:
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS courses (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            INSERT INTO courses (
+                id,
+                title,
+                description,
+                created_at,
+                updated_at
+            ) VALUES (
+                ?,
+                ?,
+                NULL,
+                datetime('now'),
+                datetime('now')
+            )
+            ON CONFLICT(id) DO NOTHING
+            """,
+            (
+                DEFAULT_COURSE_ID,
+                DEFAULT_COURSE_TITLE,
+            ),
+        )
+
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS jobs (
                 id TEXT PRIMARY KEY,
+                course_id TEXT,
                 video_path TEXT NOT NULL,
                 status TEXT NOT NULL,
                 original_filename TEXT,
@@ -109,6 +148,22 @@ def init_db() -> None:
                 conn.execute(
                     f"ALTER TABLE jobs ADD COLUMN {column_name} {column_type}"
                 )
+
+        conn.execute(
+            """
+            UPDATE jobs
+            SET course_id = ?
+            WHERE course_id IS NULL OR trim(course_id) = ''
+            """,
+            (DEFAULT_COURSE_ID,),
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_jobs_course_id
+            ON jobs (course_id)
+            """
+        )
 
         existing_card_columns = {
             row["name"]
@@ -148,6 +203,29 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_knowledge_cards_job_id
             ON knowledge_cards (job_id)
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS knowledge_card_notes (
+                id TEXT PRIMARY KEY,
+                card_id TEXT NOT NULL,
+                note_type TEXT NOT NULL,
+                title TEXT,
+                body TEXT NOT NULL,
+                source TEXT NOT NULL,
+                sources_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_knowledge_card_notes_card_id
+            ON knowledge_card_notes (card_id)
             """
         )
 
