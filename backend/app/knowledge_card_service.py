@@ -37,6 +37,15 @@ def list_job_cards(job_id: str) -> list[KnowledgeCard]:
     return list_cards_for_job(job_id)
 
 
+def get_saved_card(card_id: str) -> KnowledgeCard:
+    card = get_card(card_id)
+
+    if card is None:
+        raise KnowledgeCardNotFoundError("Knowledge card not found.")
+
+    return card
+
+
 def save_job_card(
     job_id: str,
     request: KnowledgeCardCreate,

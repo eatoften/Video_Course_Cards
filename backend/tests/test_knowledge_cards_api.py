@@ -157,6 +157,19 @@ def test_save_and_list_job_cards(tmp_path):
     ] == [created_card["id"]]
 
 
+def test_get_saved_card(tmp_path):
+    job = create_uploaded_job(tmp_path)
+    created_card = client.post(
+        f"/jobs/{job.id}/cards",
+        json=card_payload(),
+    ).json()
+
+    response = client.get(f"/cards/{created_card['id']}")
+
+    assert response.status_code == 200
+    assert response.json() == created_card
+
+
 def test_update_saved_card(tmp_path):
     job = create_uploaded_job(tmp_path)
     created_card = client.post(

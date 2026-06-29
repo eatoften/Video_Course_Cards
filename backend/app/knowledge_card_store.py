@@ -3,7 +3,11 @@ from datetime import datetime
 from sqlite3 import Row
 
 from .db import connect, ensure_db
-from .knowledge_card import KnowledgeCard, KnowledgeCardClaim
+from .knowledge_card import (
+    KnowledgeCard,
+    KnowledgeCardClaim,
+    KnowledgeCardIndexItem,
+)
 
 
 def _datetime_to_text(value: datetime) -> str:
@@ -89,6 +93,22 @@ def _row_to_card(row: Row) -> KnowledgeCard:
         source_end_seconds=row["source_end_seconds"],
         provider=row["provider"],
         model=row["model"],
+        created_at=_datetime_from_text(row["created_at"]),
+        updated_at=_datetime_from_text(row["updated_at"]),
+    )
+
+
+def _row_to_card_index_item(row: Row) -> KnowledgeCardIndexItem:
+    return KnowledgeCardIndexItem(
+        id=row["id"],
+        job_id=row["job_id"],
+        title=row["title"],
+        summary=row["summary"],
+        difficulty=row["difficulty"],
+        source_video=row["source_video"],
+        source_start_seconds=row["source_start_seconds"],
+        source_end_seconds=row["source_end_seconds"],
+        note_count=row["note_count"],
         created_at=_datetime_from_text(row["created_at"]),
         updated_at=_datetime_from_text(row["updated_at"]),
     )
@@ -189,6 +209,46 @@ def list_cards_for_course(course_id: str) -> list[KnowledgeCard]:
         ).fetchall()
 
     return [_row_to_card(row) for row in rows]
+
+
+def list_card_index_for_course(
+    course_id: str,
+) -> list[KnowledgeCardIndexItem]:
+    ensure_db()
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                knowledge_cards.id,
+                knowledge_cards.job_id,
+                knowledge_cards.title,
+                knowledge_cards.summary,
+                knowledge_cards.difficulty,
+                COALESCE(
+                    jobs.original_filename,
+                    jobs.stored_name,
+                    jobs.id
+                ) AS source_video,
+                knowledge_cards.source_start_seconds,
+                knowledge_cards.source_end_seconds,
+                knowledge_cards.created_at,
+                knowledge_cards.updated_at,
+                COUNT(knowledge_card_notes.id) AS note_count
+            FROM knowledge_cards
+            INNER JOIN jobs ON jobs.id = knowledge_cards.job_id
+            LEFT JOIN knowledge_card_notes
+                ON knowledge_card_notes.card_id = knowledge_cards.id
+            WHERE jobs.course_id = ?
+            GROUP BY knowledge_cards.id
+            ORDER BY
+                knowledge_cards.updated_at DESC,
+                knowledge_cards.source_start_seconds ASC
+            """,
+            (course_id,),
+        ).fetchall()
+
+    return [_row_to_card_index_item(row) for row in rows]
 
 
 def update_card(card: KnowledgeCard) -> None:

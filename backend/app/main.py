@@ -20,6 +20,7 @@ from .job_service import TranscriptContext
 from .knowledge_card import (
     KnowledgeCard,
     KnowledgeCardCreate,
+    KnowledgeCardIndexItem,
     KnowledgeCardUpdate,
 )
 from .knowledge_card_note import (
@@ -382,6 +383,19 @@ def list_course_cards(course_id: str) -> list[KnowledgeCard]:
         raise_course_http_error(exc)
 
 
+@app.get(
+    "/courses/{course_id}/card-index",
+    response_model=list[KnowledgeCardIndexItem],
+)
+def list_course_card_index(
+    course_id: str,
+) -> list[KnowledgeCardIndexItem]:
+    try:
+        return course_service.list_course_card_index(course_id)
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+
+
 @app.delete(
     "/courses/{course_id}/cards",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -562,6 +576,17 @@ def delete_job_cards(job_id: str) -> Response:
         raise_http_error(exc)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get(
+    "/cards/{card_id}",
+    response_model=KnowledgeCard,
+)
+def get_saved_card(card_id: str) -> KnowledgeCard:
+    try:
+        return knowledge_card_service.get_saved_card(card_id)
+    except knowledge_card_service.KnowledgeCardServiceError as exc:
+        raise_knowledge_card_http_error(exc)
 
 
 @app.get(

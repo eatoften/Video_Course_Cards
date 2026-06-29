@@ -16,9 +16,10 @@ from .course_store import (
 )
 from .job import VideoJob
 from .job_store import list_jobs_for_course, move_jobs_to_course
-from .knowledge_card import KnowledgeCard
+from .knowledge_card import KnowledgeCard, KnowledgeCardIndexItem
 from .knowledge_card_store import (
     delete_cards_for_course,
+    list_card_index_for_course,
     list_cards_for_course,
 )
 
@@ -116,6 +117,12 @@ def list_course_cards(course_id: str) -> list[KnowledgeCard]:
     course = get_video_course(course_id)
 
     return list_cards_for_course(course.id)
+
+
+def list_course_card_index(course_id: str) -> list[KnowledgeCardIndexItem]:
+    course = get_video_course(course_id)
+
+    return list_card_index_for_course(course.id)
 
 
 def delete_all_course_cards(course_id: str) -> None:

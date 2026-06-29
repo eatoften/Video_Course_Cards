@@ -159,6 +159,20 @@ type KnowledgeCard = Omit<KnowledgeCardDraft, 'question' | 'answer'> & {
   updated_at: string
 }
 
+type KnowledgeCardIndexItem = {
+  id: string
+  job_id: string
+  title: string
+  summary: string
+  difficulty: KnowledgeCardDraft['difficulty']
+  source_video: string | null
+  source_start_seconds: number
+  source_end_seconds: number
+  note_count: number
+  created_at: string
+  updated_at: string
+}
+
 type KnowledgeCardNoteType =
   | 'user_note'
   | 'llm_explanation'
@@ -384,6 +398,17 @@ function App() {
   const [selectedModel, setSelectedModel] = useState('')
   const [cardDraft, setCardDraft] = useState<CardDraftResponse | null>(null)
   const [savedCards, setSavedCards] = useState<KnowledgeCard[]>([])
+  const [courseCardIndex, setCourseCardIndex] = useState<
+    KnowledgeCardIndexItem[]
+  >([])
+  const [cardRailSearch, setCardRailSearch] = useState('')
+  const [isCardRailOpen, setIsCardRailOpen] = useState(false)
+  const [selectedRailCard, setSelectedRailCard] =
+    useState<KnowledgeCard | null>(null)
+  const [isLoadingCourseCards, setIsLoadingCourseCards] = useState(false)
+  const [isLoadingRailCard, setIsLoadingRailCard] = useState(false)
+  const [railCardEditForm, setRailCardEditForm] =
+    useState<CardEditForm | null>(null)
   const [cardNotes, setCardNotes] = useState<
     Record<string, KnowledgeCardNote[]>
   >({})
@@ -435,6 +460,22 @@ function App() {
       selectedRange.endIndex + 1,
     )
   }, [selectedRange, transcript])
+
+  const filteredCourseCardIndex = useMemo(() => {
+    const query = cardRailSearch.trim().toLowerCase()
+
+    if (!query) {
+      return courseCardIndex
+    }
+
+    return courseCardIndex.filter((card) => {
+      return [
+        card.title,
+        card.summary,
+        card.source_video ?? '',
+      ].some((value) => value.toLowerCase().includes(query))
+    })
+  }, [cardRailSearch, courseCardIndex])
 
   const savedCardSignatures = useMemo(() => {
     return new Set(savedCards.map((card) => cardSignature(card)))
@@ -499,6 +540,9 @@ function App() {
 
     try {
       const nextCourses = await fetchJson<Course[]>('/courses')
+      const urlCourseId = new URL(window.location.href).searchParams.get(
+        'course',
+      )
       const fallbackCourseId =
         nextCourses.find((course) => course.id === DEFAULT_COURSE_ID)?.id ??
         nextCourses[0]?.id ??
@@ -511,6 +555,13 @@ function App() {
           nextCourses.some((course) => course.id === preferredCourseId)
         ) {
           return preferredCourseId
+        }
+
+        if (
+          urlCourseId &&
+          nextCourses.some((course) => course.id === urlCourseId)
+        ) {
+          return urlCourseId
         }
 
         if (
@@ -551,6 +602,81 @@ function App() {
     }
   }
 
+  async function loadCourseCardIndex(
+    courseId: string | null = selectedCourseId,
+  ) {
+    if (!courseId) {
+      setCourseCardIndex([])
+      return
+    }
+
+    setIsLoadingCourseCards(true)
+
+    try {
+      const cards = await fetchJson<KnowledgeCardIndexItem[]>(
+        `/courses/${courseId}/card-index`,
+      )
+      setCourseCardIndex(cards)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Course cards failed.',
+      )
+    } finally {
+      setIsLoadingCourseCards(false)
+    }
+  }
+
+  async function openRailCard(cardId: string) {
+    setIsCardRailOpen(true)
+    setIsLoadingRailCard(true)
+    setErrorMessage(null)
+
+    try {
+      const [card, notes] = await Promise.all([
+        fetchJson<KnowledgeCard>(`/cards/${cardId}`),
+        fetchJson<KnowledgeCardNote[]>(`/cards/${cardId}/notes`),
+      ])
+
+      setSelectedRailCard(card)
+      setRailCardEditForm({
+        title: card.title,
+        summary: card.summary,
+        key_points: card.key_points.join('\n'),
+        question: card.question ?? '',
+        answer: card.answer ?? '',
+        difficulty: card.difficulty,
+      })
+      setCardNotes((previousNotes) => ({
+        ...previousNotes,
+        [card.id]: notes,
+      }))
+
+      const url = new URL(window.location.href)
+      if (selectedCourseId) {
+        url.searchParams.set('course', selectedCourseId)
+      }
+      url.searchParams.set('card', card.id)
+      window.history.pushState({}, '', url)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Card loading failed.',
+      )
+    } finally {
+      setIsLoadingRailCard(false)
+    }
+  }
+
+  function closeRailCard() {
+    setSelectedRailCard(null)
+    setRailCardEditForm(null)
+
+    const url = new URL(window.location.href)
+    url.searchParams.delete('card')
+    window.history.pushState({}, '', url)
+  }
+
   function clearActiveJob() {
     setJob(null)
     setSelectedFile(null)
@@ -571,6 +697,9 @@ function App() {
   function selectCourse(courseId: string) {
     setSelectedCourseId(courseId)
     setJobs([])
+    setCourseCardIndex([])
+    setSelectedRailCard(null)
+    setRailCardEditForm(null)
     clearActiveJob()
     setErrorMessage(null)
   }
@@ -763,6 +892,11 @@ function App() {
         previousJobs.filter((item) => item.id !== jobToDelete.id),
       )
       await loadCourses(jobToDelete.course_id)
+      await loadCourseCardIndex(jobToDelete.course_id)
+
+      if (selectedRailCard?.job_id === jobToDelete.id) {
+        closeRailCard()
+      }
 
       if (job?.id === jobToDelete.id) {
         setJob(null)
@@ -1042,6 +1176,7 @@ function App() {
         [savedCard.id]: [],
       }))
       await loadCourses(activeJob.course_id)
+      await loadCourseCardIndex(activeJob.course_id)
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Card save failed.',
@@ -1085,6 +1220,7 @@ function App() {
         return nextNotes
       })
       await loadCourses(activeJob.course_id)
+      await loadCourseCardIndex(activeJob.course_id)
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Save all failed.',
@@ -1160,6 +1296,68 @@ function App() {
       )
       setEditingCardId(null)
       setCardEditForm(null)
+      if (selectedRailCard?.id === updatedCard.id) {
+        setSelectedRailCard(updatedCard)
+      }
+      if (job) {
+        await loadCourseCardIndex(job.course_id)
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Card update failed.',
+      )
+    } finally {
+      setIsSavingCard(false)
+    }
+  }
+
+  async function saveRailCard() {
+    if (!selectedRailCard || !railCardEditForm) {
+      return
+    }
+
+    setIsSavingCard(true)
+    setErrorMessage(null)
+
+    try {
+      const updatedCard = await fetchJson<KnowledgeCard>(
+        `/cards/${selectedRailCard.id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: railCardEditForm.title,
+            summary: railCardEditForm.summary,
+            key_points: railCardEditForm.key_points
+              .split('\n')
+              .map((point) => point.trim())
+              .filter(Boolean),
+            question: railCardEditForm.question || null,
+            answer: railCardEditForm.answer || null,
+            difficulty: railCardEditForm.difficulty,
+          }),
+        },
+      )
+
+      setSelectedRailCard(updatedCard)
+      setRailCardEditForm({
+        title: updatedCard.title,
+        summary: updatedCard.summary,
+        key_points: updatedCard.key_points.join('\n'),
+        question: updatedCard.question ?? '',
+        answer: updatedCard.answer ?? '',
+        difficulty: updatedCard.difficulty,
+      })
+      setSavedCards((previousCards) =>
+        sortCardsBySource(
+          previousCards.map((card) =>
+            card.id === updatedCard.id ? updatedCard : card,
+          ),
+        ),
+      )
+      await loadCourseCardIndex(selectedCourseId)
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Card update failed.',
@@ -1195,8 +1393,12 @@ function App() {
 
         return nextForms
       })
+      if (selectedRailCard?.id === cardId) {
+        closeRailCard()
+      }
       if (job) {
         await loadCourses(job.course_id)
+        await loadCourseCardIndex(job.course_id)
       }
     } catch (error) {
       setErrorMessage(
@@ -1233,7 +1435,11 @@ function App() {
       setSavedCards([])
       setCardNotes({})
       setNoteForms({})
+      if (selectedRailCard?.job_id === job.id) {
+        closeRailCard()
+      }
       await loadCourses(job.course_id)
+      await loadCourseCardIndex(job.course_id)
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -1274,8 +1480,12 @@ function App() {
         setCardNotes({})
         setNoteForms({})
       }
+      if (selectedRailCard) {
+        closeRailCard()
+      }
 
       await loadCourses(selectedCourse.id)
+      await loadCourseCardIndex(selectedCourse.id)
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -1341,6 +1551,7 @@ function App() {
         ...previousForms,
         [cardId]: createDefaultNoteForm(),
       }))
+      await loadCourseCardIndex(selectedCourseId)
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Note save failed.',
@@ -1394,6 +1605,7 @@ function App() {
       }))
       setEditingNoteId(null)
       setNoteEditForm(null)
+      await loadCourseCardIndex(selectedCourseId)
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Note update failed.',
@@ -1421,6 +1633,7 @@ function App() {
           (existingNote) => existingNote.id !== note.id,
         ),
       }))
+      await loadCourseCardIndex(selectedCourseId)
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Note delete failed.',
@@ -1593,6 +1806,194 @@ function App() {
     )
   }
 
+  function renderCourseCardRail() {
+    const relatedJob = selectedRailCard
+      ? jobs.find((item) => item.id === selectedRailCard.job_id)
+      : null
+
+    return (
+      <aside
+        className={[
+          'card-rail',
+          isCardRailOpen ? 'open' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        <button
+          type="button"
+          className="card-rail-tab"
+          onClick={() => setIsCardRailOpen((isOpen) => !isOpen)}
+        >
+          Cards {courseCardIndex.length}
+        </button>
+        <div className="card-rail-content">
+          <div className="card-rail-header">
+            <div>
+              <div className="panel-title">Course cards</div>
+              <h2>{selectedCourse?.title ?? 'No course'}</h2>
+              <p>
+                {filteredCourseCardIndex.length} shown /{' '}
+                {courseCardIndex.length} total
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadCourseCardIndex(selectedCourseId)}
+            >
+              {isLoadingCourseCards ? 'Loading' : 'Refresh'}
+            </button>
+          </div>
+          <input
+            className="card-rail-search"
+            value={cardRailSearch}
+            onChange={(event) => setCardRailSearch(event.target.value)}
+            placeholder="Search cards"
+          />
+          <div className="card-rail-list">
+            {filteredCourseCardIndex.length ? (
+              filteredCourseCardIndex.map((card) => (
+                <button
+                  type="button"
+                  key={card.id}
+                  className={[
+                    'card-rail-list-item',
+                    selectedRailCard?.id === card.id ? 'selected' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  onClick={() => void openRailCard(card.id)}
+                >
+                  <strong>{card.title}</strong>
+                  <span>{card.summary}</span>
+                  <small>
+                    {card.source_video ?? 'video'} ·{' '}
+                    {formatTime(card.source_start_seconds)} ·{' '}
+                    {card.note_count} notes
+                  </small>
+                </button>
+              ))
+            ) : (
+              <div className="empty-list">No course cards</div>
+            )}
+          </div>
+
+          <section className="rail-card-detail">
+            <div className="card-rail-header">
+              <div>
+                <div className="panel-title">Opened card</div>
+                <h2>{selectedRailCard?.title ?? 'No card selected'}</h2>
+              </div>
+              {selectedRailCard && (
+                <button type="button" onClick={closeRailCard}>
+                  Close
+                </button>
+              )}
+            </div>
+            {isLoadingRailCard && (
+              <div className="empty-list">Loading card</div>
+            )}
+            {selectedRailCard && railCardEditForm && (
+              <div className="rail-card-file">
+                <div className="rail-card-meta">
+                  <span>{selectedRailCard.difficulty}</span>
+                  <span>
+                    {formatTime(selectedRailCard.source_start_seconds)} -{' '}
+                    {formatTime(selectedRailCard.source_end_seconds)}
+                  </span>
+                </div>
+                <div className="edit-card-form">
+                  <input
+                    value={railCardEditForm.title}
+                    onChange={(event) =>
+                      setRailCardEditForm({
+                        ...railCardEditForm,
+                        title: event.target.value,
+                      })
+                    }
+                  />
+                  <textarea
+                    value={railCardEditForm.summary}
+                    onChange={(event) =>
+                      setRailCardEditForm({
+                        ...railCardEditForm,
+                        summary: event.target.value,
+                      })
+                    }
+                  />
+                  <textarea
+                    value={railCardEditForm.key_points}
+                    onChange={(event) =>
+                      setRailCardEditForm({
+                        ...railCardEditForm,
+                        key_points: event.target.value,
+                      })
+                    }
+                  />
+                  <input
+                    value={railCardEditForm.question}
+                    onChange={(event) =>
+                      setRailCardEditForm({
+                        ...railCardEditForm,
+                        question: event.target.value,
+                      })
+                    }
+                  />
+                  <input
+                    value={railCardEditForm.answer}
+                    onChange={(event) =>
+                      setRailCardEditForm({
+                        ...railCardEditForm,
+                        answer: event.target.value,
+                      })
+                    }
+                  />
+                  <select
+                    value={railCardEditForm.difficulty}
+                    onChange={(event) =>
+                      setRailCardEditForm({
+                        ...railCardEditForm,
+                        difficulty: event.target.value as
+                          KnowledgeCardDraft['difficulty'],
+                      })
+                    }
+                  >
+                    <option value="easy">easy</option>
+                    <option value="medium">medium</option>
+                    <option value="hard">hard</option>
+                  </select>
+                  <div className="card-actions">
+                    <button
+                      type="button"
+                      disabled={isSavingCard}
+                      onClick={() => void saveRailCard()}
+                    >
+                      {isSavingCard ? 'Saving' : 'Save card'}
+                    </button>
+                    {relatedJob && (
+                      <button
+                        type="button"
+                        onClick={() => void openJob(relatedJob)}
+                      >
+                        Open video
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <ClaimsBlock
+                  claims={selectedRailCard.claims}
+                  unsupportedTerms={selectedRailCard.unsupported_terms}
+                  onJumpToTime={jumpToTime}
+                />
+                {renderCardNotes(selectedRailCard)}
+              </div>
+            )}
+          </section>
+        </div>
+      </aside>
+    )
+  }
+
   useEffect(() => {
     void checkLlmStatus()
     void loadCourses()
@@ -1604,6 +2005,17 @@ function App() {
     }
 
     void loadJobs(selectedCourseId)
+    void loadCourseCardIndex(selectedCourseId)
+  }, [selectedCourseId])
+
+  useEffect(() => {
+    const cardId = new URL(window.location.href).searchParams.get('card')
+
+    if (!selectedCourseId || !cardId || selectedRailCard?.id === cardId) {
+      return
+    }
+
+    void openRailCard(cardId)
   }, [selectedCourseId])
 
   useEffect(() => {
@@ -1668,6 +2080,7 @@ function App() {
           if (nextJob.status === 'completed') {
             void loadJobs(nextJob.course_id)
             void loadCourses(nextJob.course_id)
+            void loadCourseCardIndex(nextJob.course_id)
             void loadSavedCards(nextJob.id)
             return loadTranscript(nextJob.id)
           }
@@ -2352,6 +2765,7 @@ function App() {
           </section>
         </aside>
       </section>
+      {renderCourseCardRail()}
     </main>
   )
 }

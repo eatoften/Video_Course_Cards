@@ -59,3 +59,17 @@ class KnowledgeCard(KnowledgeCardBase):
     job_id: str
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class KnowledgeCardIndexItem(BaseModel):
+    id: str
+    job_id: str
+    title: str
+    summary: str
+    difficulty: KnowledgeCardDifficulty
+    source_video: str | None = None
+    source_start_seconds: float
+    source_end_seconds: float
+    note_count: int = 0
+    created_at: datetime
+    updated_at: datetime

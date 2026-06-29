@@ -165,6 +165,53 @@ def test_list_course_jobs(tmp_path):
     ] == ["course-job"]
 
 
+def test_list_course_card_index_includes_note_counts(tmp_path):
+    course = create_course()
+    course_job = create_uploaded_job(
+        tmp_path,
+        job_id="course-job",
+        course_id=course["id"],
+    )
+    default_job = create_uploaded_job(tmp_path, job_id="default-job")
+    course_card = save_card(course_job.id, "course-card")
+    save_card(default_job.id, "default-card")
+
+    note_response = client.post(
+        f"/cards/{course_card.id}/notes",
+        json={
+            "note_type": "user_note",
+            "title": "My note",
+            "body": "This card is important.",
+            "source": "user",
+            "sources": [],
+        },
+    )
+
+    assert note_response.status_code == 201
+
+    response = client.get(f"/courses/{course['id']}/card-index")
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert len(data) == 1
+
+    item = data[0]
+
+    assert item["id"] == course_card.id
+    assert item["job_id"] == course_job.id
+    assert item["title"] == "Matrix Factorization"
+    assert item["summary"] == "SVD factors a matrix into structured pieces."
+    assert item["difficulty"] == "medium"
+    assert item["source_video"] == course_job.id
+    assert item["source_start_seconds"] == 1.0
+    assert item["source_end_seconds"] == 2.0
+    assert item["note_count"] == 1
+    assert item["created_at"]
+    assert item["updated_at"]
+
+
 def test_delete_course_moves_jobs_to_default(tmp_path):
     course = create_course()
     job = create_uploaded_job(
