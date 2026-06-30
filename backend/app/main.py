@@ -14,6 +14,7 @@ from . import export_service
 from . import job_service
 from . import knowledge_card_service
 from . import knowledge_card_note_service
+from . import transcript_chunk_service
 from .course import Course, CourseCreate, CourseUpdate
 from .db import init_db
 from .job import VideoJob, VideoJobStatus
@@ -31,6 +32,7 @@ from .knowledge_card_note import (
 )
 from .llm_client import LLMModelList, LLMStatus, LocalLLMClient
 from .transcription import FasterWhisperTranscriber, TranscriptionResult
+from .transcript_chunk import TranscriptChunk, TranscriptChunkGenerationRequest
 from .video_pipeline import VideoPipeline
 
 
@@ -210,6 +212,33 @@ def raise_course_http_error(exc: course_service.CourseServiceError) -> None:
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Unexpected course service error.",
+    ) from exc
+
+
+def raise_transcript_chunk_http_error(
+    exc: transcript_chunk_service.TranscriptChunkServiceError,
+) -> None:
+    if isinstance(
+        exc,
+        transcript_chunk_service.InvalidTranscriptChunkConfigError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(
+        exc,
+        transcript_chunk_service.TranscriptChunkGenerationError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unexpected transcript chunk service error.",
     ) from exc
 
 
@@ -396,6 +425,40 @@ def list_course_cards(course_id: str) -> list[KnowledgeCard]:
         raise_course_http_error(exc)
 
 
+@app.post(
+    "/courses/{course_id}/chunks",
+    response_model=list[TranscriptChunk],
+)
+def generate_course_transcript_chunks(
+    course_id: str,
+    request: TranscriptChunkGenerationRequest | None = None,
+) -> list[TranscriptChunk]:
+    try:
+        return transcript_chunk_service.generate_course_chunks(
+            course_id,
+            request,
+        )
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+    except transcript_chunk_service.TranscriptChunkServiceError as exc:
+        raise_transcript_chunk_http_error(exc)
+
+
+@app.get(
+    "/courses/{course_id}/chunks",
+    response_model=list[TranscriptChunk],
+)
+def list_course_transcript_chunks(course_id: str) -> list[TranscriptChunk]:
+    try:
+        return transcript_chunk_service.list_course_transcript_chunks(
+            course_id
+        )
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+
+
 @app.get(
     "/courses/{course_id}/card-index",
     response_model=list[KnowledgeCardIndexItem],
@@ -528,6 +591,36 @@ def get_transcript_context(
             start_seconds,
             end_seconds,
         )
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+
+
+@app.post(
+    "/jobs/{job_id}/chunks",
+    response_model=list[TranscriptChunk],
+)
+def generate_job_transcript_chunks(
+    job_id: str,
+    request: TranscriptChunkGenerationRequest | None = None,
+) -> list[TranscriptChunk]:
+    try:
+        return transcript_chunk_service.generate_job_chunks(
+            job_id,
+            request,
+        )
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+    except transcript_chunk_service.TranscriptChunkServiceError as exc:
+        raise_transcript_chunk_http_error(exc)
+
+
+@app.get(
+    "/jobs/{job_id}/chunks",
+    response_model=list[TranscriptChunk],
+)
+def list_job_transcript_chunks(job_id: str) -> list[TranscriptChunk]:
+    try:
+        return transcript_chunk_service.list_job_chunks(job_id)
     except job_service.JobServiceError as exc:
         raise_http_error(exc)
 

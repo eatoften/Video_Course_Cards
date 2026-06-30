@@ -267,6 +267,45 @@ def init_db() -> None:
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS transcript_chunks (
+                id TEXT PRIMARY KEY,
+                course_id TEXT NOT NULL,
+                job_id TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                start_seconds REAL NOT NULL,
+                end_seconds REAL NOT NULL,
+                text TEXT NOT NULL,
+                segment_ids TEXT NOT NULL,
+                chunker_version TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_transcript_chunks_job_id
+            ON transcript_chunks (job_id)
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_transcript_chunks_course_id
+            ON transcript_chunks (course_id)
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                idx_transcript_chunks_job_chunk_index
+            ON transcript_chunks (job_id, chunk_index)
+            """
+        )
+
     _initialized_paths.add(db_path)
 
 

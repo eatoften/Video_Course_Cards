@@ -4,6 +4,7 @@ from app.db import configure_db, init_db
 from app.job_store import clear_jobs
 from app.knowledge_card_store import clear_cards
 from app.knowledge_card_note_store import clear_notes
+from app.transcript_chunk_store import clear_chunks
 
 @pytest.fixture(autouse=True)
 def isolated_job_db(tmp_path_factory):
@@ -13,10 +14,12 @@ def isolated_job_db(tmp_path_factory):
     init_db()
     clear_notes()
     clear_cards()
+    clear_chunks()
     clear_jobs()
 
     yield
 
     clear_notes()
     clear_cards()
+    clear_chunks()
     clear_jobs()

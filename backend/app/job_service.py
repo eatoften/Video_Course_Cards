@@ -18,6 +18,7 @@ from .job_store import (
 )
 from .knowledge_card_store import delete_cards_for_job
 from .media_probe import MediaProbeError, probe_video
+from .transcript_chunk_store import delete_chunks_for_job
 from .transcript_store import load_transcription
 from .transcription import TranscriptSegment, TranscriptionResult
 from .video_pipeline import VideoPipeline
@@ -209,6 +210,7 @@ def delete_video_job(
     job = get_video_job(job_id)
 
     delete_cards_for_job(job.id)
+    delete_chunks_for_job(job.id)
     delete_job(job.id)
 
     _unlink_artifact(job.video_path, artifact_root)
