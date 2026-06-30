@@ -440,6 +440,8 @@ function App() {
   const [courses, setCourses] = useState<Course[]>([])
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null)
   const [newCourseTitle, setNewCourseTitle] = useState('')
+  const [renamingCourseId, setRenamingCourseId] = useState<string | null>(null)
+  const [courseRenameTitle, setCourseRenameTitle] = useState('')
   const [jobs, setJobs] = useState<VideoJob[]>([])
   const [job, setJob] = useState<VideoJob | null>(null)
   const [transcript, setTranscript] = useState<TranscriptionResult | null>(null)
@@ -843,10 +845,28 @@ function App() {
     }
   }
 
-  async function renameCourse(course: Course) {
-    const title = window.prompt('Course name', course.title)?.trim()
+  function startRenamingCourse(course: Course) {
+    setRenamingCourseId(course.id)
+    setCourseRenameTitle(course.title)
+    setErrorMessage(null)
+    setExportMessage(null)
+  }
 
-    if (!title || title === course.title) {
+  function cancelRenamingCourse() {
+    setRenamingCourseId(null)
+    setCourseRenameTitle('')
+  }
+
+  async function renameCourse(course: Course) {
+    const title = courseRenameTitle.trim()
+
+    if (!title) {
+      setErrorMessage('Course title is required.')
+      return
+    }
+
+    if (title === course.title) {
+      cancelRenamingCourse()
       return
     }
 
@@ -867,6 +887,7 @@ function App() {
         },
       )
       await loadCourses(course.id)
+      cancelRenamingCourse()
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'Course rename failed.',
@@ -2848,47 +2869,96 @@ function App() {
             </div>
             <div className="course-list">
               {courses.length ? (
-                courses.map((course) => (
-                  <div
-                    key={course.id}
-                    className={[
-                      'course-list-row',
-                      course.id === selectedCourseId ? 'selected' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                  >
-                    <button
-                      type="button"
-                      className="course-list-item"
-                      onClick={() => selectCourse(course.id)}
+                courses.map((course) => {
+                  const isRenaming = renamingCourseId === course.id
+
+                  return (
+                    <div
+                      key={course.id}
+                      className={[
+                        'course-list-row',
+                        course.id === selectedCourseId ? 'selected' : '',
+                        isRenaming ? 'renaming' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
                     >
-                      <span>{course.title}</span>
-                      <small>
-                        {course.job_count} videos / {course.card_count} cards
-                      </small>
-                    </button>
-                    <div className="course-row-actions">
-                      <button
-                        type="button"
-                        disabled={isSavingCourse}
-                        onClick={() => void renameCourse(course)}
-                      >
-                        Rename
-                      </button>
-                      {course.id !== DEFAULT_COURSE_ID && (
-                        <button
-                          type="button"
-                          className="danger-button"
-                          disabled={isSavingCourse}
-                          onClick={() => void deleteCourse(course)}
-                        >
-                          Delete
-                        </button>
+                      {isRenaming ? (
+                        <div className="course-rename-form">
+                          <input
+                            value={courseRenameTitle}
+                            autoFocus
+                            disabled={isSavingCourse}
+                            aria-label="Course name"
+                            onChange={(event) =>
+                              setCourseRenameTitle(event.target.value)
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                void renameCourse(course)
+                              }
+
+                              if (event.key === 'Escape') {
+                                cancelRenamingCourse()
+                              }
+                            }}
+                          />
+                          <div className="course-rename-actions">
+                            <button
+                              type="button"
+                              disabled={
+                                isSavingCourse || !courseRenameTitle.trim()
+                              }
+                              onClick={() => void renameCourse(course)}
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSavingCourse}
+                              onClick={cancelRenamingCourse}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="course-list-item"
+                            onClick={() => selectCourse(course.id)}
+                          >
+                            <span>{course.title}</span>
+                            <small>
+                              {course.job_count} videos / {course.card_count}{' '}
+                              cards
+                            </small>
+                          </button>
+                          <div className="course-row-actions">
+                            <button
+                              type="button"
+                              disabled={isSavingCourse}
+                              onClick={() => startRenamingCourse(course)}
+                            >
+                              Rename
+                            </button>
+                            {course.id !== DEFAULT_COURSE_ID && (
+                              <button
+                                type="button"
+                                className="danger-button"
+                                disabled={isSavingCourse}
+                                onClick={() => void deleteCourse(course)}
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </>
                       )}
                     </div>
-                  </div>
-                ))
+                  )
+                })
               ) : (
                 <div className="empty-list">No courses</div>
               )}

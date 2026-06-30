@@ -974,6 +974,10 @@ button:disabled {
   align-items: stretch;
 }
 
+.course-list-row.renaming {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .course-list-item,
 .job-list-item {
   width: 100%;
@@ -1016,6 +1020,43 @@ button:disabled {
 
 .course-row-actions button {
   height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.course-rename-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.course-rename-form input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  border: 1px solid #bfd0ee;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #ffffff;
+  color: #172033;
+  font: inherit;
+}
+
+.course-rename-form input:focus {
+  border-color: #4d7cfe;
+  box-shadow: 0 0 0 3px rgba(77, 124, 254, 0.14);
+  outline: none;
+}
+
+.course-rename-actions {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 6px;
+}
+
+.course-rename-actions button {
+  height: 30px;
   padding: 0 8px;
   font-size: 12px;
 }
