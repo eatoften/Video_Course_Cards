@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from . import card_service
 from . import course_service
+from . import export_service
 from . import job_service
 from . import knowledge_card_service
 from . import knowledge_card_note_service
@@ -210,6 +211,18 @@ def raise_course_http_error(exc: course_service.CourseServiceError) -> None:
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Unexpected course service error.",
     ) from exc
+
+
+def archive_response(archive: export_service.MarkdownArchive) -> Response:
+    return Response(
+        content=archive.content,
+        media_type=archive.media_type,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{archive.filename}"'
+            ),
+        },
+    )
 
 
 @asynccontextmanager
@@ -537,6 +550,39 @@ def draft_cards(
         raise_card_http_error(exc)
 
 
+@app.get("/jobs/{job_id}/cards/export/markdown")
+def export_job_cards_markdown(job_id: str) -> Response:
+    try:
+        return archive_response(
+            export_service.export_job_cards_markdown(job_id)
+        )
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+
+
+@app.post(
+    "/jobs/{job_id}/cards/export/markdown/local",
+    response_model=export_service.SavedMarkdownArchive,
+)
+def save_job_cards_markdown_export(job_id: str):
+    try:
+        archive = export_service.export_job_cards_markdown(job_id)
+        return export_service.save_archive_to_disk(archive)
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+
+
+@app.post(
+    "/jobs/{job_id}/cards/export/markdown/folder",
+    response_model=export_service.SavedMarkdownFolder,
+)
+def save_job_cards_markdown_folder_export(job_id: str):
+    try:
+        return export_service.save_job_cards_markdown_folder(job_id)
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+
+
 @app.get(
     "/jobs/{job_id}/cards",
     response_model=list[KnowledgeCard],
@@ -576,6 +622,30 @@ def delete_job_cards(job_id: str) -> Response:
         raise_http_error(exc)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/cards/export/markdown")
+def export_all_cards_markdown() -> Response:
+    return archive_response(
+        export_service.export_all_cards_markdown()
+    )
+
+
+@app.post(
+    "/cards/export/markdown/local",
+    response_model=export_service.SavedMarkdownArchive,
+)
+def save_all_cards_markdown_export():
+    archive = export_service.export_all_cards_markdown()
+    return export_service.save_archive_to_disk(archive)
+
+
+@app.post(
+    "/cards/export/markdown/folder",
+    response_model=export_service.SavedMarkdownFolder,
+)
+def save_all_cards_markdown_folder_export():
+    return export_service.save_all_cards_markdown_folder()
 
 
 @app.get(

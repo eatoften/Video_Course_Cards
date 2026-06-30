@@ -1,6 +1,6 @@
 # Video Course Cards Roadmap
 
-Last updated: 2026-06-28
+Last updated: 2026-06-30
 
 ## Project Positioning
 
@@ -27,13 +27,27 @@ video upload
 -> local Ollama/Qwen integration
 -> knowledge_cards SQLite persistence
 -> claim-level grounding
+-> course/video/card workspace
+-> card tags, review state, and user notes
+-> Obsidian-friendly Markdown folder export
 ```
 
 The current product capability is:
 
 ```text
-local course video -> transcript -> grounded knowledge cards
+local course video -> transcript -> grounded knowledge cards -> Markdown snapshot
 ```
+
+Design decision:
+
+```text
+SQLite is the source of truth.
+Markdown files are portable export snapshots.
+```
+
+If a user edits Markdown files in Obsidian, those edits do not automatically
+sync back to SQLite. Future sync can be designed later, but the current system
+keeps data ownership simple and predictable.
 
 ## Completed Milestones
 
@@ -185,153 +199,275 @@ uploaded
 - Cards with no verified claim are rejected
 - Frontend displays claims, quotes, and source timestamps
 
-## Next Development Plan
-
-## Phase 1: Stabilize the Current MVP
-
-The goal of this phase is to make the current video-to-card workflow reliable,
-transparent, and comfortable to use.
-
 ### Milestone 13: Card Generation Reliability
 
-Problem:
+- Generation progress and metadata
+- Local LLM timeout handling
+- Context length guardrails
+- Cancel generation
+- Clearer error responses for failed generation
+- Backend tests for slow and failed local model paths
 
-Local generation can be slow, and the user currently does not get enough
-feedback while the model is working.
+### Milestone 14: Course/Card Workspace and Review
 
-Planned work:
-
-- Show generation state in the frontend:
-
-```text
-calling local model
-validating claims
-grounding evidence
-done
-```
-
-- Add clearer backend error types for `/cards/draft`
-- Support canceling a generation request
-- Warn users when the selected transcript context is too long
-- Record generation metadata:
-  - elapsed time
-  - selected model
-  - approximate input length
-  - number of generated cards
-  - number of grounded claims
-- Shorten and stabilize the Qwen 4B prompt
-- Add tests for slow generation and failed generation paths
-
-Knowledge to learn:
-
-- API latency
-- Request timeout
-- UI loading states
-- LLM output robustness
-- Local model performance tradeoffs
-
-### Milestone 14: Card Review Workflow
-
-Problem:
-
-Generated cards need a better review and editing workflow before they become a
-real study asset.
-
-Planned work:
-
-- Make draft cards and saved cards visually distinct
-- Save all generated cards at once
-- Jump from evidence timestamp to video playback time
-- Edit claims
-- Delete claims
-- Edit evidence text when needed
-- Sort cards by transcript time
-- Add optional tags
-- Add user notes
-- Add difficulty controls
-
-Knowledge to learn:
-
-- CRUD workflow design
-- React state management
-- Form editing
-- Backend data validation
-- Human-in-the-loop product design
+- Course list and video list
+- Course-level card rail
+- Card detail view
+- Saved card edit/delete
+- Delete all cards for a job or course
+- Tags
+- Review state
+- User notes stored separately from cards
+- Fixed transcript and card panel overflow issues
 
 ### Milestone 15: Export
 
+- Export one job's cards as Markdown
+- Export all cards as Markdown
+- Obsidian-friendly folder layout
+- Zip export retained as a portable packaging option
+- Local folder export to `C:\Users\12245\Desktop\cards`
+- Snapshot manifests:
+  - `.vcc-job-export-manifest.json`
+  - `.vcc-vault-export-manifest.json`
+- Exported Markdown includes:
+  - source video
+  - timestamps
+  - claims
+  - evidence quotes
+  - active recall question/answer
+  - metadata
+
+Obsidian workflow:
+
+```text
+export Markdown snapshots
+-> open C:\Users\12245\Desktop\cards as an Obsidian vault
+```
+
+SQLite remains the main database. Markdown remains a portable snapshot.
+
+## Technical Research Notes
+
+The next phase is guided by a few established ideas:
+
+- Text segmentation can be treated as subtopic boundary detection. The classic
+  TextTiling paper frames long text as passages separated by topic shifts.
+- Modern semantic chunking usually computes sentence/window embeddings and
+  inserts boundaries where adjacent windows become semantically distant.
+- Semantic similarity can be measured by embedding texts and computing cosine
+  similarity.
+- Local embedding models can be served by Ollama, keeping the project
+  local-first.
+- SQLite can store vectors directly as JSON/BLOB for the MVP. A SQLite vector
+  extension such as `sqlite-vec` can be considered later if brute-force search
+  becomes too slow.
+- RAG should retrieve explicit non-parametric memory, not rely only on the
+  model's parameters.
+- GraphRAG-style systems use extraction, graph structure, community/topic
+  hierarchy, and summarization to answer broader questions over a corpus.
+
+Reference anchors:
+
+- TextTiling: https://aclanthology.org/J97-1003/
+- LlamaIndex semantic splitter:
+  https://developers.llamaindex.ai/python/examples/node_parsers/semantic_chunking/
+- SentenceTransformers semantic textual similarity:
+  https://sbert.net/docs/sentence_transformer/usage/semantic_textual_similarity.html
+- Ollama embedding models:
+  https://ollama.com/blog/embedding-models
+- `nomic-embed-text`:
+  https://ollama.com/library/nomic-embed-text
+- `sqlite-vec`: https://github.com/asg017/sqlite-vec
+- RAG paper: https://arxiv.org/abs/2005.11401
+- Microsoft GraphRAG:
+  https://microsoft.github.io/graphrag/
+
+## Next Development Plan
+
+## Phase 2: Course-Scale Semantic Card Pipeline
+
+The goal of this phase is to move from manual card generation over a selected
+transcript range to automated course-scale card generation.
+
+The intended pipeline is:
+
+```text
+course videos
+-> transcripts
+-> semantic transcript chunks
+-> automated grounded card generation
+-> card/chunk embeddings
+-> similarity and deduplication
+-> knowledge graph/tree
+-> grounded local RAG assistant
+```
+
+### Milestone 16: Transcript Semantic Segmentation
+
 Problem:
 
-The system should produce portable knowledge artifacts, not only in-app data.
+To build useful card similarity and a knowledge graph, the project first needs
+stable semantic units. Raw Whisper segments are too small and arbitrary, while
+entire lectures are too large for reliable card generation.
 
 Planned work:
 
-- Export one job's cards as Markdown
-- Export all cards as Markdown
-- Obsidian-friendly vault layout
-- Include source video and timestamps
-- Include claims and evidence
-- Include active recall question/answer
+- Add a `transcript_chunks` SQLite table:
+  - `id`
+  - `course_id`
+  - `job_id`
+  - `start_seconds`
+  - `end_seconds`
+  - `text`
+  - `segment_ids`
+  - `chunk_index`
+  - `chunker_version`
+  - `created_at`
+- Build a transcript chunking service:
+  - start from timestamped transcript segments
+  - merge tiny Whisper segments into sentence/window candidates
+  - compute embeddings for neighboring windows
+  - detect topic shifts by cosine distance
+  - enforce minimum and maximum chunk length
+  - preserve segment ids and timestamps
+- Add APIs:
+  - `POST /jobs/{job_id}/chunks`
+  - `GET /jobs/{job_id}/chunks`
+  - `POST /courses/{course_id}/chunks`
+- Add a frontend chunk review panel:
+  - list chunks for a video
+  - show timestamps
+  - jump video to chunk start
+  - allow regenerating chunks
+- Keep a deterministic fallback chunker:
+  - duration-based windows
+  - max character limit
+  - overlap between chunks
 
-Example export:
+Initial algorithm:
 
-```markdown
-# Singular Value Decomposition
-
-Summary...
-
-## Claims
-
-- Claim: SVD factors a matrix using orthogonal and diagonal structure.
-  Evidence: "..."
-  Source: 12:04 - 12:18
-
-## Active Recall
-
-Q: ...
-A: ...
+```text
+transcript segments
+-> normalize text
+-> sentence/window candidates
+-> local embeddings
+-> adjacent cosine distance
+-> boundaries above threshold
+-> merge/split to fit min/max length
+-> timestamped transcript_chunks
 ```
 
 Knowledge to learn:
 
-- File generation
-- Content serialization
-- Markdown schema design
-- Portable knowledge assets
+- Text segmentation
+- Semantic chunking
+- Embedding-based boundary detection
+- Timestamp-preserving NLP pipelines
+- Chunk quality debugging
 
-## Phase 2: Upgrade Cards Into a Knowledge Base
-
-The goal of this phase is to move beyond a list of cards and create a semantic
-knowledge system.
-
-### Milestone 16: Embeddings and Similarity
+### Milestone 17: Automated Course Card Generation
 
 Problem:
 
-Cards are currently isolated. The system should understand when two cards are
-semantically related.
+Generating cards manually from selected transcript spans does not scale to an
+entire course. The system should automatically create grounded cards from
+semantic transcript chunks.
 
 Planned work:
 
-- Generate embeddings for each card
-- Add a `card_embeddings` SQLite table
-- Store card vectors locally
+- Generate cards from `transcript_chunks`
+- Add a generation run table:
+  - `card_generation_runs`
+  - chunk/job/course scope
+  - model
+  - status
+  - started/completed timestamps
+  - error message
+  - generation metadata
+- Link cards to source chunks:
+  - `source_chunk_id`
+  - or `knowledge_card_sources` for many-to-one evidence
+- Add batch generation APIs:
+  - `POST /jobs/{job_id}/cards/generate-from-chunks`
+  - `POST /courses/{course_id}/cards/generate-from-chunks`
+- Use existing claim-level grounding for each generated card
+- Add retries for failed chunks
+- Skip chunks that are too short or low-information
+- Add course-level progress UI:
+  - chunks pending
+  - chunks generating
+  - chunks completed
+  - chunks failed
+- Save generated cards as drafts for human review
+
+Card generation policy:
+
+```text
+one semantic chunk
+-> ask local LLM for 0-3 cards
+-> verify claims against chunk transcript
+-> save grounded cards
+-> mark weak chunks as no_card
+```
+
+Knowledge to learn:
+
+- Batch processing
+- Idempotent generation
+- Background jobs
+- LLM workflow orchestration
+- Grounded generation at course scale
+
+### Milestone 18: Embeddings and Similarity
+
+Problem:
+
+After a course has enough cards, the system should understand which concepts are
+similar, duplicated, or complementary.
+
+Planned work:
+
+- Generate embeddings for:
+  - `knowledge_cards`
+  - `transcript_chunks`
+- Add embedding tables:
+  - `card_embeddings`
+  - `transcript_chunk_embeddings`
+- Store vectors locally:
+  - MVP: JSON or BLOB in SQLite
+  - Later: evaluate `sqlite-vec`
 - Implement cosine similarity search
 - Show related cards in the frontend
 - Detect near-duplicate generated cards
 - When generating a new card, compare it with existing cards
+- Add similarity thresholds:
+  - duplicate candidate
+  - strongly related
+  - weakly related
+- Add a small similarity debug page:
+  - card text used for embedding
+  - top-k neighbors
+  - cosine scores
+  - source videos and timestamps
 
 Possible local embedding models:
 
 - `nomic-embed-text`
+- `nomic-embed-text-v2-moe`
 - `bge-small`
 - `bge-m3`
+- `qwen3-embedding`
 
 Flow:
 
 ```text
-card text -> embedding model -> vector
-query vector vs card vectors -> cosine similarity
+card/chunk text
+-> local embedding model
+-> vector
+-> SQLite storage
+-> cosine similarity
+-> related cards / dedupe candidates
 ```
 
 Knowledge to learn:
@@ -342,12 +478,13 @@ Knowledge to learn:
 - Semantic deduplication
 - SQLite vector storage tradeoffs
 
-### Milestone 17: Knowledge Graph / Knowledge Tree
+### Milestone 19: Knowledge Graph / Knowledge Tree
 
 Problem:
 
 A real learning system should expose relationships between concepts, not only
-store independent cards.
+store independent cards. Similarity is not enough: the system should distinguish
+"prerequisite" from "example", "contrast", and "part of".
 
 Planned work:
 
@@ -366,6 +503,16 @@ part_of
 - Add manual relation editing
 - Add graph or tree visualization
 - Support topic clusters
+- Store relationship provenance:
+  - embedding score
+  - LLM explanation
+  - user confirmation
+- Add topic cluster summaries
+- Add prerequisite-path view:
+
+```text
+basic concept -> supporting idea -> advanced card
+```
 
 Knowledge to learn:
 
@@ -375,7 +522,7 @@ Knowledge to learn:
 - Human-in-the-loop curation
 - Concept map product design
 
-### Milestone 18: Local RAG Assistant
+### Milestone 20: Local RAG Assistant
 
 Problem:
 
@@ -389,13 +536,23 @@ Planned work:
 - Use local Qwen to answer
 - Require citations with timestamps
 - Say "not enough evidence" when retrieval does not support an answer
+- Use both vector retrieval and graph context:
+  - similar transcript chunks
+  - relevant cards
+  - neighboring graph nodes
+- Show answer citations:
+  - video
+  - timestamp
+  - card title
+  - evidence quote
 
 Flow:
 
 ```text
 question
--> embedding search
--> retrieve cards/transcript
+-> query embedding
+-> retrieve transcript_chunks + cards
+-> expand with graph neighbors
 -> local LLM answer
 -> cite evidence
 ```
@@ -407,13 +564,14 @@ Knowledge to learn:
 - Context construction
 - Citation grounding
 - Local LLM assistant design
+- Retrieval evaluation
 
 ## Phase 3: Make It Research- and Resume-Ready
 
 The goal of this phase is to make the project measurable, explainable, and easy
 for others to run.
 
-### Milestone 19: Evaluation Layer
+### Milestone 21: Evaluation Layer
 
 Problem:
 
@@ -426,6 +584,13 @@ Planned work:
 - Measure generation latency
 - Measure duplicate card rate
 - Measure retrieval hit rate
+- Measure chunk quality:
+  - average chunk duration
+  - boundary quality sample review
+  - chunks with too little information
+- Measure graph quality:
+  - accepted/rejected relationship suggestions
+  - duplicate edge rate
 - Add user feedback:
   - good
   - bad
@@ -444,9 +609,10 @@ Resume angle:
 
 > I did not only build an LLM app. I designed evaluation metrics for grounded
 > knowledge generation and tracked failure modes such as unsupported claims,
-> duplicate cards, and retrieval misses.
+> duplicate cards, poor transcript chunks, graph relation errors, and retrieval
+> misses.
 
-### Milestone 20: Learning Feedback Dataset
+### Milestone 22: Learning Feedback Dataset
 
 Problem:
 
@@ -458,6 +624,9 @@ Planned work:
 - Store generated card -> edited card diffs
 - Store save/delete decisions
 - Store evidence clicks
+- Store chunk boundary edits
+- Store accepted/rejected similarity suggestions
+- Store accepted/rejected graph edges
 - Store user feedback labels
 - Build preference-style training records
 - Prepare data for future prompt optimization or reward modeling
@@ -478,7 +647,7 @@ Knowledge to learn:
 - Human correction logs
 - Agentic learning loop design
 
-### Milestone 21: Packaging, README, and Demo
+### Milestone 23: Packaging, README, and Demo
 
 Problem:
 
@@ -496,6 +665,7 @@ Planned work:
 - Add architecture diagram
 - Add demo video
 - Add sample transcript/card data
+- Add sample course dataset
 - Add troubleshooting guide for ports and local model setup
 
 Knowledge to learn:
@@ -510,20 +680,21 @@ Knowledge to learn:
 The next recommended milestone is:
 
 ```text
-Milestone 13: Card Generation Reliability
+Milestone 16: Transcript Semantic Segmentation
 ```
 
 Reason:
 
-The current system already works end-to-end, but real usage has exposed the next
-important product problem:
+The current system can generate grounded cards from selected transcript spans.
+To build similarity, graph structure, and RAG, it now needs stable semantic
+units across an entire course.
 
 ```text
-local generation is slow, and the UI does not clearly explain what is happening
+course videos -> transcripts -> semantic chunks -> automated grounded cards
 ```
 
-Before adding embeddings, graph structure, or RAG, the card generation workflow
-should become transparent, cancellable, and easier to debug.
+Only after the transcript chunking and automated card generation layers exist
+will card similarity have enough high-quality material to work with.
 
 ## Long-Term Final Shape
 
@@ -531,14 +702,15 @@ The final system should feel like:
 
 ```text
 local video learning workspace
--> upload course videos
+-> upload a full course worth of videos
 -> transcribe locally
--> generate grounded knowledge cards
+-> segment transcripts into semantic chunks
+-> automatically generate grounded knowledge cards
 -> review and edit cards
--> export to Obsidian
--> discover related concepts
--> build a personal knowledge graph
+-> export Markdown snapshots to Obsidian
+-> compute card/chunk similarity
+-> detect duplicate and related concepts
+-> build a course knowledge graph/tree
 -> ask grounded questions over the local course memory
 -> collect feedback for future agentic improvement
 ```
-

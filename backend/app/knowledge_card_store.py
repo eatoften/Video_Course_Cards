@@ -236,6 +236,26 @@ def list_cards_for_course(course_id: str) -> list[KnowledgeCard]:
     return [_row_to_card(row) for row in rows]
 
 
+def list_cards() -> list[KnowledgeCard]:
+    ensure_db()
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT knowledge_cards.*
+            FROM knowledge_cards
+            INNER JOIN jobs ON jobs.id = knowledge_cards.job_id
+            ORDER BY
+                jobs.course_id ASC,
+                jobs.created_at ASC,
+                knowledge_cards.source_start_seconds ASC,
+                knowledge_cards.created_at ASC
+            """
+        ).fetchall()
+
+    return [_row_to_card(row) for row in rows]
+
+
 def list_card_index_for_course(
     course_id: str,
 ) -> list[KnowledgeCardIndexItem]:

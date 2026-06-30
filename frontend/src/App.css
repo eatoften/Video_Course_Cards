@@ -232,6 +232,17 @@ button:disabled {
   padding: 10px 12px;
 }
 
+.success-banner {
+  padding: 10px 12px;
+  border: 1px solid #86d39a;
+  border-radius: 6px;
+  background: #ebf8ee;
+  color: #1f7a3a;
+  font-size: 13px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
 .error-text {
   margin-top: 12px;
   padding: 8px 10px;
@@ -900,6 +911,19 @@ button:disabled {
   font-size: 18px;
 }
 
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.panel-actions button {
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
 .job-panel h2,
 .transcript-panel h2 {
   margin: 0 0 14px;
@@ -999,6 +1023,16 @@ button:disabled {
 .course-clear-button {
   width: 100%;
   margin-top: 10px;
+}
+
+.course-card-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.course-card-actions .course-clear-button {
+  margin-top: 0;
 }
 
 .danger-button {

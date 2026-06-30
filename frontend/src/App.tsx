@@ -230,6 +230,12 @@ type UploadResponse = {
   status: JobStatus
 }
 
+type SavedFolderResponse = {
+  root_path: string
+  file_count: number
+  files: string[]
+}
+
 type SegmentRange = {
   anchorIndex: number
   startIndex: number
@@ -276,6 +282,32 @@ async function fetchJson<T>(
   }
 
   return response.json() as Promise<T>
+}
+
+async function exportMarkdownFolder(path: string): Promise<SavedFolderResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}${path}`,
+    {
+      method: 'POST',
+    },
+  )
+
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`
+
+    try {
+      const payload = await response.json()
+      if (typeof payload.detail === 'string') {
+        message = payload.detail
+      }
+    } catch {
+      // Keep the HTTP status message.
+    }
+
+    throw new Error(message)
+  }
+
+  return response.json() as Promise<SavedFolderResponse>
 }
 
 function formatTime(seconds: number): string {
@@ -455,10 +487,12 @@ function App() {
   const [isSavingCourse, setIsSavingCourse] = useState(false)
   const [isSavingCard, setIsSavingCard] = useState(false)
   const [isSavingNote, setIsSavingNote] = useState(false)
+  const [isExportingCards, setIsExportingCards] = useState(false)
   const [isDeletingJob, setIsDeletingJob] = useState(false)
   const [isCheckingLlm, setIsCheckingLlm] = useState(false)
   const [isDraftingCards, setIsDraftingCards] = useState(false)
   const [generationStatus, setGenerationStatus] = useState<string | null>(null)
+  const [exportMessage, setExportMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const activeSegmentIndex = useMemo(() => {
@@ -477,6 +511,10 @@ function App() {
   const selectedCourse = useMemo(() => {
     return courses.find((course) => course.id === selectedCourseId) ?? null
   }, [courses, selectedCourseId])
+
+  const totalSavedCardCount = useMemo(() => {
+    return courses.reduce((total, course) => total + course.card_count, 0)
+  }, [courses])
 
   const selectedSegments = useMemo(() => {
     if (!transcript || !selectedRange) {
@@ -560,6 +598,7 @@ function App() {
     setTranscriptContext(null)
     setCardDraft(null)
     setGenerationStatus(null)
+    setExportMessage(null)
     setEditingCardId(null)
     setCardEditForm(null)
     setEditingNoteId(null)
@@ -590,6 +629,7 @@ function App() {
     setNoteForms({})
     clearTranscriptSelection()
     setErrorMessage(null)
+    setExportMessage(null)
   }
 
   async function refreshJob(jobId: string): Promise<VideoJob> {
@@ -757,6 +797,7 @@ function App() {
     setCardNotes({})
     setNoteForms({})
     clearTranscriptSelection()
+    setExportMessage(null)
   }
 
   function selectCourse(courseId: string) {
@@ -1566,6 +1607,56 @@ function App() {
     }
   }
 
+  async function exportJobCards() {
+    if (!job || savedCards.length === 0) {
+      return
+    }
+
+    setIsExportingCards(true)
+    setErrorMessage(null)
+    setExportMessage(null)
+
+    try {
+      const folder = await exportMarkdownFolder(
+        `/jobs/${job.id}/cards/export/markdown/folder`,
+      )
+      setExportMessage(
+        `Exported ${folder.file_count} Markdown files to ${folder.root_path}`,
+      )
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Job card export failed.',
+      )
+    } finally {
+      setIsExportingCards(false)
+    }
+  }
+
+  async function exportAllCards() {
+    if (totalSavedCardCount === 0) {
+      return
+    }
+
+    setIsExportingCards(true)
+    setErrorMessage(null)
+    setExportMessage(null)
+
+    try {
+      const folder = await exportMarkdownFolder(
+        '/cards/export/markdown/folder',
+      )
+      setExportMessage(
+        `Exported ${folder.file_count} Markdown files to ${folder.root_path}`,
+      )
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Card vault export failed.',
+      )
+    } finally {
+      setIsExportingCards(false)
+    }
+  }
+
   function getNoteForm(cardId: string): NoteForm {
     return noteForms[cardId] ?? createDefaultNoteForm()
   }
@@ -2347,6 +2438,9 @@ function App() {
           {errorMessage && (
             <div className="error-banner">{errorMessage}</div>
           )}
+          {exportMessage && (
+            <div className="success-banner">{exportMessage}</div>
+          )}
 
           {selectedRange && selectedSegments.length > 0 && (
             <div className="selection-panel">
@@ -2535,14 +2629,25 @@ function App() {
                   {savedCards.length} cards sorted by source time
                 </div>
               </div>
-              <button
-                type="button"
-                className="danger-button"
-                disabled={isSavingCard || savedCards.length === 0}
-                onClick={() => void deleteAllSavedCardsForJob()}
-              >
-                Delete all
-              </button>
+              <div className="panel-actions">
+                <button
+                  type="button"
+                  disabled={
+                    isExportingCards || savedCards.length === 0
+                  }
+                  onClick={() => void exportJobCards()}
+                >
+                  {isExportingCards ? 'Exporting' : 'Export job'}
+                </button>
+                <button
+                  type="button"
+                  className="danger-button"
+                  disabled={isSavingCard || savedCards.length === 0}
+                  onClick={() => void deleteAllSavedCardsForJob()}
+                >
+                  Delete all
+                </button>
+              </div>
             </div>
             <div className="card-list">
               {savedCards.length ? (
@@ -2788,18 +2893,30 @@ function App() {
                 <div className="empty-list">No courses</div>
               )}
             </div>
-            <button
-              type="button"
-              className="danger-button course-clear-button"
-              disabled={
-                isSavingCard ||
-                !selectedCourse ||
-                selectedCourse.card_count === 0
-              }
-              onClick={() => void deleteAllSavedCardsForCourse()}
-            >
-              Delete course cards
-            </button>
+            <div className="course-card-actions">
+              <button
+                type="button"
+                className="course-clear-button"
+                disabled={
+                  isExportingCards || totalSavedCardCount === 0
+                }
+                onClick={() => void exportAllCards()}
+              >
+                {isExportingCards ? 'Exporting' : 'Export all cards'}
+              </button>
+              <button
+                type="button"
+                className="danger-button course-clear-button"
+                disabled={
+                  isSavingCard ||
+                  !selectedCourse ||
+                  selectedCourse.card_count === 0
+                }
+                onClick={() => void deleteAllSavedCardsForCourse()}
+              >
+                Delete course cards
+              </button>
+            </div>
           </section>
           <section className="jobs-panel">
             <div className="panel-heading-row">
