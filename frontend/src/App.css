@@ -1086,7 +1086,9 @@ dd {
   min-height: 0;
   max-height: 100%;
   overflow: auto;
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   padding-right: 4px;
 }
@@ -1106,6 +1108,7 @@ dd {
 }
 
 .segment {
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr);
   height: auto;
@@ -1123,6 +1126,7 @@ dd {
   color: #243044;
   font-size: 14px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .segment.active {
