@@ -150,6 +150,40 @@ type CardDraftResponse = {
   cards: KnowledgeCardDraft[]
 }
 
+type CardGenerationMode = 'manual' | 'auto'
+type CardGenerationRunStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'canceled'
+
+type CardGenerationRunError = {
+  chunk_id: string | null
+  chunk_index: number | null
+  message: string
+}
+
+type CardGenerationRun = {
+  id: string
+  job_id: string
+  mode: 'auto'
+  status: CardGenerationRunStatus
+  model: string | null
+  card_count_per_chunk: number
+  total_chunks: number
+  completed_chunks: number
+  succeeded_chunks: number
+  failed_chunks: number
+  cards_created: number
+  error_message: string | null
+  errors: CardGenerationRunError[]
+  created_at: string
+  updated_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
 type KnowledgeCard = Omit<KnowledgeCardDraft, 'question' | 'answer'> & {
   id: string
   job_id: string
@@ -386,6 +420,32 @@ function sortCardsBySource<T extends SourceSortableCard>(cards: T[]): T[] {
   })
 }
 
+function isAutoGenerationActive(
+  run: CardGenerationRun | null,
+): boolean {
+  return run?.status === 'pending' || run?.status === 'running'
+}
+
+function autoGenerationStatusText(run: CardGenerationRun): string {
+  if (run.status === 'pending') {
+    return 'Queued'
+  }
+
+  if (run.status === 'running') {
+    return `Processing ${run.completed_chunks} / ${run.total_chunks} chunks`
+  }
+
+  if (run.status === 'completed') {
+    return `Created ${run.cards_created} cards`
+  }
+
+  if (run.status === 'failed') {
+    return run.error_message || 'Auto generation failed'
+  }
+
+  return 'Canceled'
+}
+
 function ClaimsBlock({
   claims,
   unsupportedTerms,
@@ -451,7 +511,11 @@ function App() {
   const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null)
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [selectedModel, setSelectedModel] = useState('')
+  const [generationMode, setGenerationMode] =
+    useState<CardGenerationMode>('manual')
   const [cardDraft, setCardDraft] = useState<CardDraftResponse | null>(null)
+  const [autoGenerationRun, setAutoGenerationRun] =
+    useState<CardGenerationRun | null>(null)
   const [savedCards, setSavedCards] = useState<KnowledgeCard[]>([])
   const [courseCardIndex, setCourseCardIndex] = useState<
     KnowledgeCardIndexItem[]
@@ -493,6 +557,8 @@ function App() {
   const [isDeletingJob, setIsDeletingJob] = useState(false)
   const [isCheckingLlm, setIsCheckingLlm] = useState(false)
   const [isDraftingCards, setIsDraftingCards] = useState(false)
+  const [isStartingAutoGeneration, setIsStartingAutoGeneration] =
+    useState(false)
   const [generationStatus, setGenerationStatus] = useState<string | null>(null)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -630,6 +696,7 @@ function App() {
     setCardNotes({})
     setNoteForms({})
     clearTranscriptSelection()
+    setAutoGenerationRun(null)
     setErrorMessage(null)
     setExportMessage(null)
   }
@@ -799,6 +866,7 @@ function App() {
     setCardNotes({})
     setNoteForms({})
     clearTranscriptSelection()
+    setAutoGenerationRun(null)
     setExportMessage(null)
   }
 
@@ -954,6 +1022,26 @@ function App() {
     await loadNotesForCards(sortedCards)
   }
 
+  async function loadLatestAutoGenerationRun(jobId: string) {
+    const runs = await fetchJson<CardGenerationRun[]>(
+      `/jobs/${jobId}/card-generation-runs`,
+    )
+
+    setAutoGenerationRun(runs[0] ?? null)
+  }
+
+  async function refreshAutoGenerationRun(
+    runId: string,
+  ): Promise<CardGenerationRun> {
+    const nextRun = await fetchJson<CardGenerationRun>(
+      `/card-generation-runs/${runId}`,
+    )
+
+    setAutoGenerationRun(nextRun)
+
+    return nextRun
+  }
+
   async function loadNotesForCards(cards: KnowledgeCard[]) {
     if (cards.length === 0) {
       setCardNotes({})
@@ -992,6 +1080,7 @@ function App() {
 
     try {
       await loadSavedCards(nextJob.id)
+      await loadLatestAutoGenerationRun(nextJob.id)
 
       if (nextJob.transcript_path) {
         await loadTranscript(nextJob.id)
@@ -1247,6 +1336,58 @@ function App() {
       }
 
       setIsDraftingCards(false)
+    }
+  }
+
+  async function startAutoGeneration() {
+    if (!job) {
+      return
+    }
+
+    setIsStartingAutoGeneration(true)
+    setErrorMessage(null)
+    setExportMessage(null)
+    setCardDraft(null)
+
+    try {
+      const run = await fetchJson<CardGenerationRun>(
+        `/jobs/${job.id}/cards/auto-generate`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: selectedModel || null,
+            focus: cardFocus.trim() || null,
+            card_count_per_chunk: 2,
+            regenerate_chunks: false,
+            chunking: {
+              context_radius: 1,
+              min_chunk_seconds: 120,
+              max_chunk_seconds: 360,
+              boundary_percentile: 90,
+              replace_existing: true,
+            },
+          }),
+        },
+      )
+
+      setAutoGenerationRun(run)
+
+      if (!isAutoGenerationActive(run)) {
+        await loadSavedCards(job.id)
+        await loadCourses(job.course_id)
+        await loadCourseCardIndex(job.course_id)
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Auto generation failed.',
+      )
+    } finally {
+      setIsStartingAutoGeneration(false)
     }
   }
 
@@ -2315,6 +2456,33 @@ function App() {
   }, [job, selectedRange, transcript])
 
   useEffect(() => {
+    if (!job || !autoGenerationRun || !isAutoGenerationActive(autoGenerationRun)) {
+      return
+    }
+
+    const activeRun = autoGenerationRun
+    const intervalId = window.setInterval(() => {
+      void refreshAutoGenerationRun(activeRun.id)
+        .then((nextRun) => {
+          if (!isAutoGenerationActive(nextRun)) {
+            void loadSavedCards(job.id)
+            void loadCourses(job.course_id)
+            void loadCourseCardIndex(job.course_id)
+          }
+        })
+        .catch((error) => {
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : 'Auto generation polling failed.',
+          )
+        })
+    }, 1500)
+
+    return () => window.clearInterval(intervalId)
+  }, [autoGenerationRun, job])
+
+  useEffect(() => {
     if (!job || !runningStatuses.includes(job.status)) {
       return
     }
@@ -2356,6 +2524,12 @@ function App() {
   const canGenerateCards =
     selectedSegments.length > 0 && !isDraftingCards && !isLoadingContext
   const canCancelCards = isDraftingCards && cardGenerationAbortRef.current
+  const isAutoGenerating =
+    isStartingAutoGeneration || isAutoGenerationActive(autoGenerationRun)
+  const canAutoGenerate =
+    job?.status === 'completed' &&
+    !isAutoGenerating &&
+    !isDraftingCards
 
   return (
     <main className="app-shell">
@@ -2463,23 +2637,29 @@ function App() {
             <div className="success-banner">{exportMessage}</div>
           )}
 
-          {selectedRange && selectedSegments.length > 0 && (
+          {job?.status === 'completed' && transcript && (
             <div className="selection-panel">
-              <div className="panel-title">Context window</div>
-              <p>
-                {formatTime(selectedSegments[0].start_seconds)} -{' '}
-                {formatTime(
-                  selectedSegments[selectedSegments.length - 1].end_seconds,
-                )}
-              </p>
-              <p className="context-text">
-                {isLoadingContext
-                  ? 'Loading context'
-                  : transcriptContext?.text ||
-                    selectedSegments
-                      .map((segment) => segment.text)
-                      .join('\n')}
-              </p>
+              <div className="generation-mode-header">
+                <div className="panel-title">Card generation</div>
+                <div className="generation-mode-toggle">
+                  <button
+                    type="button"
+                    className={
+                      generationMode === 'manual' ? 'selected' : ''
+                    }
+                    onClick={() => setGenerationMode('manual')}
+                  >
+                    Manual
+                  </button>
+                  <button
+                    type="button"
+                    className={generationMode === 'auto' ? 'selected' : ''}
+                    onClick={() => setGenerationMode('auto')}
+                  >
+                    Auto
+                  </button>
+                </div>
+              </div>
               <div className="card-controls">
                 <input
                   className="focus-input"
@@ -2487,29 +2667,87 @@ function App() {
                   onChange={(event) => setCardFocus(event.target.value)}
                   placeholder="Optional focus, e.g. exam review or core concept"
                 />
-                <button
-                  type="button"
-                  disabled={!canGenerateCards}
-                  onClick={() => void generateCards()}
-                >
-                  {isDraftingCards ? 'Generating' : 'Generate cards'}
-                </button>
-                {isDraftingCards && (
+                {generationMode === 'manual' ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={!canGenerateCards}
+                      onClick={() => void generateCards()}
+                    >
+                      {isDraftingCards ? 'Generating' : 'Generate from selection'}
+                    </button>
+                    {isDraftingCards && (
+                      <button
+                        type="button"
+                        disabled={!canCancelCards}
+                        onClick={cancelCardGeneration}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </>
+                ) : (
                   <button
                     type="button"
-                    disabled={!canCancelCards}
-                    onClick={cancelCardGeneration}
+                    disabled={!canAutoGenerate}
+                    onClick={() => void startAutoGeneration()}
                   >
-                    Cancel
+                    {isAutoGenerating ? 'Generating' : 'Auto generate'}
                   </button>
                 )}
               </div>
-              {generationStatus && (
+
+              {generationMode === 'manual' && (
+                selectedRange && selectedSegments.length > 0 ? (
+                  <>
+                    <p>
+                      {formatTime(selectedSegments[0].start_seconds)} -{' '}
+                      {formatTime(
+                        selectedSegments[
+                          selectedSegments.length - 1
+                        ].end_seconds,
+                      )}
+                    </p>
+                    <p className="context-text">
+                      {isLoadingContext
+                        ? 'Loading context'
+                        : transcriptContext?.text ||
+                          selectedSegments
+                            .map((segment) => segment.text)
+                            .join('\n')}
+                    </p>
+                  </>
+                ) : (
+                  <div className="empty-list">No transcript selection</div>
+                )
+              )}
+
+              {generationMode === 'manual' && generationStatus && (
                 <div className="generation-status">
                   <span>{generationStatus}</span>
                   {isDraftingCards && (
+                    <small>Local models can take a while on CPU.</small>
+                  )}
+                </div>
+              )}
+
+              {generationMode === 'auto' && autoGenerationRun && (
+                <div className="generation-status">
+                  <span>{autoGenerationStatusText(autoGenerationRun)}</span>
+                  <small>
+                    {autoGenerationRun.completed_chunks} /{' '}
+                    {autoGenerationRun.total_chunks} chunks ·{' '}
+                    {autoGenerationRun.succeeded_chunks} succeeded ·{' '}
+                    {autoGenerationRun.failed_chunks} failed
+                  </small>
+                  {autoGenerationRun.errors.length > 0 && (
                     <small>
-                      Local models can take a while on CPU.
+                      Latest issue:{' '}
+                      {
+                        autoGenerationRun.errors[
+                          autoGenerationRun.errors.length - 1
+                        ].message
+                      }
                     </small>
                   )}
                 </div>

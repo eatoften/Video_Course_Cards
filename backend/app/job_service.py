@@ -7,6 +7,7 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from .course import DEFAULT_COURSE_ID
+from .card_generation_run_store import delete_runs_for_job
 from .course_store import get_course
 from .job import VideoJob, VideoJobStatus, utc_now
 from .job_store import (
@@ -209,6 +210,7 @@ def delete_video_job(
 ) -> None:
     job = get_video_job(job_id)
 
+    delete_runs_for_job(job.id)
     delete_cards_for_job(job.id)
     delete_chunks_for_job(job.id)
     delete_job(job.id)

@@ -8,6 +8,7 @@ from fastapi import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from . import auto_card_generation_service
 from . import card_service
 from . import course_service
 from . import export_service
@@ -16,6 +17,7 @@ from . import knowledge_card_service
 from . import knowledge_card_note_service
 from . import transcript_chunk_service
 from .course import Course, CourseCreate, CourseUpdate
+from .card_generation_run import AutoCardGenerationRequest, CardGenerationRun
 from .db import init_db
 from .job import VideoJob, VideoJobStatus
 from .job_service import TranscriptContext
@@ -239,6 +241,33 @@ def raise_transcript_chunk_http_error(
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Unexpected transcript chunk service error.",
+    ) from exc
+
+
+def raise_auto_generation_http_error(
+    exc: auto_card_generation_service.AutoCardGenerationServiceError,
+) -> None:
+    if isinstance(
+        exc,
+        auto_card_generation_service.CardGenerationRunNotFoundError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(
+        exc,
+        auto_card_generation_service.InvalidAutoCardGenerationRequestError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unexpected auto card generation service error.",
     ) from exc
 
 
@@ -641,6 +670,59 @@ def draft_cards(
         raise_http_error(exc)
     except card_service.CardServiceError as exc:
         raise_card_http_error(exc)
+
+
+@app.post(
+    "/jobs/{job_id}/cards/auto-generate",
+    response_model=CardGenerationRun,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def start_auto_card_generation(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    request: AutoCardGenerationRequest | None = None,
+) -> CardGenerationRun:
+    try:
+        run = auto_card_generation_service.start_auto_card_generation(
+            job_id,
+            request,
+        )
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+    except auto_card_generation_service.AutoCardGenerationServiceError as exc:
+        raise_auto_generation_http_error(exc)
+
+    background_tasks.add_task(
+        auto_card_generation_service.run_auto_card_generation,
+        run.id,
+        get_llm_client,
+    )
+
+    return run
+
+
+@app.get(
+    "/card-generation-runs/{run_id}",
+    response_model=CardGenerationRun,
+)
+def get_card_generation_run(run_id: str) -> CardGenerationRun:
+    try:
+        return auto_card_generation_service.get_card_generation_run(run_id)
+    except auto_card_generation_service.AutoCardGenerationServiceError as exc:
+        raise_auto_generation_http_error(exc)
+
+
+@app.get(
+    "/jobs/{job_id}/card-generation-runs",
+    response_model=list[CardGenerationRun],
+)
+def list_job_card_generation_runs(job_id: str) -> list[CardGenerationRun]:
+    try:
+        return auto_card_generation_service.list_job_card_generation_runs(
+            job_id
+        )
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
 
 
 @app.get("/jobs/{job_id}/cards/export/markdown")

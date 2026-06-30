@@ -15,7 +15,7 @@ from .settings import LLMSettings
 
 Difficulty = Literal["easy", "medium", "hard"]
 MAX_CONTEXT_CHARACTERS = 4000
-MAX_SELECTED_SEGMENTS = 24
+MAX_SELECTED_SEGMENTS = 80
 
 THINK_BLOCK_RE = re.compile(
     r"<think>.*?</think>",

@@ -306,6 +306,38 @@ def init_db() -> None:
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS card_generation_runs (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                status TEXT NOT NULL,
+                model TEXT,
+                card_count_per_chunk INTEGER NOT NULL,
+                total_chunks INTEGER NOT NULL,
+                completed_chunks INTEGER NOT NULL,
+                succeeded_chunks INTEGER NOT NULL,
+                failed_chunks INTEGER NOT NULL,
+                cards_created INTEGER NOT NULL,
+                error_message TEXT,
+                errors_json TEXT NOT NULL,
+                request_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_card_generation_runs_job_id
+            ON card_generation_runs (job_id)
+            """
+        )
+
     _initialized_paths.add(db_path)
 
 

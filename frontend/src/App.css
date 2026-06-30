@@ -260,6 +260,31 @@ button:disabled {
   margin: 6px 0 0;
 }
 
+.generation-mode-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.generation-mode-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 6px;
+}
+
+.generation-mode-toggle button {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.generation-mode-toggle button.selected {
+  border-color: #4d7cfe;
+  background: #eef5ff;
+  color: #244476;
+}
+
 .context-text {
   max-height: 220px;
   overflow: auto;
@@ -291,9 +316,7 @@ button:disabled {
 }
 
 .generation-status {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
   gap: 12px;
   margin-top: 10px;
   padding: 9px 10px;
@@ -310,6 +333,7 @@ button:disabled {
 
 .generation-status small {
   color: #697386;
+  overflow-wrap: anywhere;
 }
 
 .cards-panel {

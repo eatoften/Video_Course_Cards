@@ -18,6 +18,13 @@ class LLMSettings(BaseModel):
     timeout_seconds: float = Field(default=120.0, ge=1.0)
 
 
+class EmbeddingSettings(BaseModel):
+    model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    model_path: str | None = None
+    batch_size: int = Field(default=32, ge=1)
+    local_files_only: bool = True
+
+
 def _read_env_file() -> dict[str, str]:
     env_path = BACKEND_DIR / ".env"
 
@@ -72,6 +79,22 @@ def _env_int(
         return default
 
 
+def _env_bool(
+    name: str,
+    default: bool,
+    env_file_values: dict[str, str],
+) -> bool:
+    raw_value = _env(name, str(default), env_file_values).strip().lower()
+
+    if raw_value in {"1", "true", "yes", "on"}:
+        return True
+
+    if raw_value in {"0", "false", "no", "off"}:
+        return False
+
+    return default
+
+
 @cache
 def get_llm_settings() -> LLMSettings:
     env_file_values = _read_env_file()
@@ -98,6 +121,31 @@ def get_llm_settings() -> LLMSettings:
         timeout_seconds=_env_float(
             "VCC_LLM_TIMEOUT_SECONDS",
             120.0,
+            env_file_values,
+        ),
+    )
+
+
+@cache
+def get_embedding_settings() -> EmbeddingSettings:
+    env_file_values = _read_env_file()
+    model_path = _env("VCC_EMBEDDING_MODEL_PATH", "", env_file_values).strip()
+
+    return EmbeddingSettings(
+        model=_env(
+            "VCC_EMBEDDING_MODEL",
+            "sentence-transformers/all-MiniLM-L6-v2",
+            env_file_values,
+        ),
+        model_path=model_path or None,
+        batch_size=_env_int(
+            "VCC_EMBEDDING_BATCH_SIZE",
+            32,
+            env_file_values,
+        ),
+        local_files_only=_env_bool(
+            "VCC_EMBEDDING_LOCAL_FILES_ONLY",
+            True,
             env_file_values,
         ),
     )
