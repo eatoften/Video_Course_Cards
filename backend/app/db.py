@@ -181,6 +181,7 @@ def init_db() -> None:
                 existing_card_columns
             )
         ):
+            conn.execute("DROP TABLE IF EXISTS card_embeddings")
             conn.execute("DROP TABLE knowledge_cards")
             existing_card_columns = set()
 
@@ -264,6 +265,20 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_knowledge_card_notes_card_id
             ON knowledge_card_notes (card_id)
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS card_embeddings (
+                card_id TEXT PRIMARY KEY,
+                model TEXT NOT NULL,
+                dimension INTEGER NOT NULL,
+                text_hash TEXT NOT NULL,
+                vector BLOB NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
             """
         )
 

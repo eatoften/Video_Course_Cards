@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import auto_card_generation_service
+from . import card_embedding_service
 from . import card_service
 from . import course_service
 from . import export_service
@@ -18,6 +19,7 @@ from . import knowledge_card_note_service
 from . import transcript_chunk_service
 from .course import Course, CourseCreate, CourseUpdate
 from .card_generation_run import AutoCardGenerationRequest, CardGenerationRun
+from .card_embedding import CardEmbeddingBatchResult, CardEmbeddingStatus
 from .db import init_db
 from .job import VideoJob, VideoJobStatus
 from .job_service import TranscriptContext
@@ -271,6 +273,33 @@ def raise_auto_generation_http_error(
     ) from exc
 
 
+def raise_card_embedding_http_error(
+    exc: card_embedding_service.CardEmbeddingServiceError,
+) -> None:
+    if isinstance(
+        exc,
+        card_embedding_service.CardEmbeddingCardNotFoundError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(
+        exc,
+        card_embedding_service.CardEmbeddingGenerationError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unexpected card embedding service error.",
+    ) from exc
+
+
 def archive_response(archive: export_service.MarkdownArchive) -> Response:
     return Response(
         content=archive.content,
@@ -501,6 +530,36 @@ def list_course_card_index(
         raise_course_http_error(exc)
 
 
+@app.post(
+    "/courses/{course_id}/card-embeddings",
+    response_model=CardEmbeddingBatchResult,
+)
+def embed_course_cards(course_id: str) -> CardEmbeddingBatchResult:
+    try:
+        return card_embedding_service.embed_course_cards(course_id)
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+    except card_embedding_service.CardEmbeddingServiceError as exc:
+        raise_card_embedding_http_error(exc)
+
+
+@app.get(
+    "/courses/{course_id}/card-embeddings/status",
+    response_model=CardEmbeddingStatus,
+)
+def get_course_card_embedding_status(
+    course_id: str,
+) -> CardEmbeddingStatus:
+    try:
+        return card_embedding_service.get_course_card_embedding_status(
+            course_id
+        )
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+    except card_embedding_service.CardEmbeddingServiceError as exc:
+        raise_card_embedding_http_error(exc)
+
+
 @app.delete(
     "/courses/{course_id}/cards",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -652,6 +711,32 @@ def list_job_transcript_chunks(job_id: str) -> list[TranscriptChunk]:
         return transcript_chunk_service.list_job_chunks(job_id)
     except job_service.JobServiceError as exc:
         raise_http_error(exc)
+
+
+@app.post(
+    "/jobs/{job_id}/card-embeddings",
+    response_model=CardEmbeddingBatchResult,
+)
+def embed_job_cards(job_id: str) -> CardEmbeddingBatchResult:
+    try:
+        return card_embedding_service.embed_job_cards(job_id)
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+    except card_embedding_service.CardEmbeddingServiceError as exc:
+        raise_card_embedding_http_error(exc)
+
+
+@app.get(
+    "/jobs/{job_id}/card-embeddings/status",
+    response_model=CardEmbeddingStatus,
+)
+def get_job_card_embedding_status(job_id: str) -> CardEmbeddingStatus:
+    try:
+        return card_embedding_service.get_job_card_embedding_status(job_id)
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+    except card_embedding_service.CardEmbeddingServiceError as exc:
+        raise_card_embedding_http_error(exc)
 
 
 @app.post(
@@ -832,6 +917,28 @@ def get_saved_card(card_id: str) -> KnowledgeCard:
         return knowledge_card_service.get_saved_card(card_id)
     except knowledge_card_service.KnowledgeCardServiceError as exc:
         raise_knowledge_card_http_error(exc)
+
+
+@app.post(
+    "/cards/{card_id}/embedding",
+    response_model=CardEmbeddingBatchResult,
+)
+def embed_saved_card(card_id: str) -> CardEmbeddingBatchResult:
+    try:
+        return card_embedding_service.embed_card(card_id)
+    except card_embedding_service.CardEmbeddingServiceError as exc:
+        raise_card_embedding_http_error(exc)
+
+
+@app.get(
+    "/cards/{card_id}/embedding/status",
+    response_model=CardEmbeddingStatus,
+)
+def get_saved_card_embedding_status(card_id: str) -> CardEmbeddingStatus:
+    try:
+        return card_embedding_service.get_card_embedding_status(card_id)
+    except card_embedding_service.CardEmbeddingServiceError as exc:
+        raise_card_embedding_http_error(exc)
 
 
 @app.get(
