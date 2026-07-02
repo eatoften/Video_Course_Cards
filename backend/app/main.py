@@ -16,6 +16,7 @@ from . import export_service
 from . import job_service
 from . import knowledge_card_service
 from . import knowledge_card_note_service
+from . import rag_service
 from . import transcript_chunk_service
 from .course import Course, CourseCreate, CourseUpdate
 from .card_generation_run import AutoCardGenerationRequest, CardGenerationRun
@@ -35,6 +36,7 @@ from .knowledge_card_note import (
     KnowledgeCardNoteUpdate,
 )
 from .llm_client import LLMModelList, LLMStatus, LocalLLMClient
+from .rag import RagRetrieveRequest, RagRetrieveResponse
 from .transcription import FasterWhisperTranscriber, TranscriptionResult
 from .transcript_chunk import TranscriptChunk, TranscriptChunkGenerationRequest
 from .video_pipeline import VideoPipeline
@@ -297,6 +299,25 @@ def raise_card_embedding_http_error(
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Unexpected card embedding service error.",
+    ) from exc
+
+
+def raise_rag_http_error(exc: rag_service.RagServiceError) -> None:
+    if isinstance(exc, rag_service.RagScopeMismatchError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(exc, rag_service.RagRetrievalError):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unexpected RAG service error.",
     ) from exc
 
 
@@ -808,6 +829,25 @@ def list_job_card_generation_runs(job_id: str) -> list[CardGenerationRun]:
         )
     except job_service.JobServiceError as exc:
         raise_http_error(exc)
+
+
+@app.post(
+    "/rag/retrieve",
+    response_model=RagRetrieveResponse,
+)
+def retrieve_rag_cards(
+    request: RagRetrieveRequest,
+) -> RagRetrieveResponse:
+    try:
+        return rag_service.retrieve_cards(request)
+    except job_service.JobServiceError as exc:
+        raise_http_error(exc)
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+    except card_embedding_service.CardEmbeddingServiceError as exc:
+        raise_card_embedding_http_error(exc)
+    except rag_service.RagServiceError as exc:
+        raise_rag_http_error(exc)
 
 
 @app.get("/jobs/{job_id}/cards/export/markdown")

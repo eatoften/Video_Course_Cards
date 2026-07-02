@@ -151,6 +151,7 @@ type CardDraftResponse = {
 }
 
 type CardGenerationMode = 'manual' | 'auto'
+type CardRailTab = 'cards' | 'ask'
 type CardGenerationRunStatus =
   | 'pending'
   | 'running'
@@ -211,6 +212,24 @@ type KnowledgeCardIndexItem = {
   note_count: number
   created_at: string
   updated_at: string
+}
+
+type RetrievedCard = {
+  card_id: string
+  job_id: string
+  title: string
+  summary: string
+  score: number
+  source_start_seconds: number
+  source_end_seconds: number
+  key_points: string[]
+  claims: KnowledgeCardClaim[]
+  tags: string[]
+}
+
+type RagRetrieveResponse = {
+  question: string
+  results: RetrievedCard[]
 }
 
 type KnowledgeCardNoteType =
@@ -529,6 +548,10 @@ function App() {
     'all' | 'has_notes' | 'no_notes'
   >('all')
   const [isCardRailOpen, setIsCardRailOpen] = useState(false)
+  const [cardRailTab, setCardRailTab] = useState<CardRailTab>('cards')
+  const [ragQuestion, setRagQuestion] = useState('')
+  const [ragResults, setRagResults] = useState<RetrievedCard[]>([])
+  const [ragError, setRagError] = useState<string | null>(null)
   const [selectedRailCard, setSelectedRailCard] =
     useState<KnowledgeCard | null>(null)
   const [isLoadingCourseCards, setIsLoadingCourseCards] = useState(false)
@@ -559,6 +582,7 @@ function App() {
   const [isDraftingCards, setIsDraftingCards] = useState(false)
   const [isStartingAutoGeneration, setIsStartingAutoGeneration] =
     useState(false)
+  const [isRetrievingCards, setIsRetrievingCards] = useState(false)
   const [generationStatus, setGenerationStatus] = useState<string | null>(null)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -842,6 +866,46 @@ function App() {
     }
   }
 
+  async function retrieveRagCards() {
+    const question = ragQuestion.trim()
+
+    if (!question) {
+      setRagError('Question is required.')
+      return
+    }
+
+    const courseId = selectedCourseId ?? DEFAULT_COURSE_ID
+
+    setIsRetrievingCards(true)
+    setRagError(null)
+
+    try {
+      const response = await fetchJson<RagRetrieveResponse>(
+        '/rag/retrieve',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            question,
+            course_id: courseId,
+            top_k: 5,
+          }),
+        },
+      )
+
+      setRagResults(response.results)
+      await loadCourseCardIndex(courseId)
+    } catch (error) {
+      setRagError(
+        error instanceof Error ? error.message : 'Card retrieval failed.',
+      )
+    } finally {
+      setIsRetrievingCards(false)
+    }
+  }
+
   function closeRailCard() {
     setSelectedRailCard(null)
     setRailCardEditForm(null)
@@ -876,6 +940,8 @@ function App() {
     setCourseCardIndex([])
     setSelectedRailCard(null)
     setRailCardEditForm(null)
+    setRagResults([])
+    setRagError(null)
     clearActiveJob()
     setErrorMessage(null)
   }
@@ -2166,12 +2232,30 @@ function App() {
               {isLoadingCourseCards ? 'Loading' : 'Refresh'}
             </button>
           </div>
-          <input
-            className="card-rail-search"
-            value={cardRailSearch}
-            onChange={(event) => setCardRailSearch(event.target.value)}
-            placeholder="Search cards"
-          />
+          <div className="card-rail-tabs">
+            <button
+              type="button"
+              className={cardRailTab === 'cards' ? 'selected' : ''}
+              onClick={() => setCardRailTab('cards')}
+            >
+              Cards
+            </button>
+            <button
+              type="button"
+              className={cardRailTab === 'ask' ? 'selected' : ''}
+              onClick={() => setCardRailTab('ask')}
+            >
+              Ask
+            </button>
+          </div>
+          {cardRailTab === 'cards' ? (
+            <>
+              <input
+                className="card-rail-search"
+                value={cardRailSearch}
+                onChange={(event) => setCardRailSearch(event.target.value)}
+                placeholder="Search cards"
+              />
           <div className="card-rail-filters">
             <select
               value={cardRailReviewFilter}
@@ -2375,6 +2459,69 @@ function App() {
               </div>
             )}
           </section>
+            </>
+          ) : (
+            <section className="rail-ask-panel">
+              <form
+                className="rail-ask-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void retrieveRagCards()
+                }}
+              >
+                <textarea
+                  value={ragQuestion}
+                  onChange={(event) => setRagQuestion(event.target.value)}
+                  placeholder="Ask about this course"
+                />
+                <button
+                  type="submit"
+                  disabled={isRetrievingCards || !ragQuestion.trim()}
+                >
+                  {isRetrievingCards ? 'Retrieving' : 'Retrieve'}
+                </button>
+              </form>
+              {ragError && (
+                <div className="error-text">{ragError}</div>
+              )}
+              <div className="rail-ask-results">
+                {ragResults.length ? (
+                  ragResults.map((result) => (
+                    <button
+                      type="button"
+                      key={result.card_id}
+                      className="rail-ask-result"
+                      onClick={() => {
+                        setCardRailTab('cards')
+                        void openRailCard(result.card_id)
+                      }}
+                    >
+                      <div className="rail-ask-result-heading">
+                        <strong>{result.title}</strong>
+                        <span>{result.score.toFixed(3)}</span>
+                      </div>
+                      <p>{result.summary}</p>
+                      <small>
+                        {formatTime(result.source_start_seconds)} -{' '}
+                        {formatTime(result.source_end_seconds)}
+                      </small>
+                      {result.tags.length > 0 && (
+                        <div className="tag-row">
+                          {result.tags.map((tag) => (
+                            <span key={tag}>{tag}</span>
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                  ))
+                ) : (
+                  <div className="empty-list">
+                    {isRetrievingCards ? 'Retrieving cards' : 'No results'}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
         </div>
       </aside>
     )

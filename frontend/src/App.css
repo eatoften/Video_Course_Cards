@@ -376,7 +376,13 @@ button:disabled {
 .card-rail-content {
   height: 100%;
   display: grid;
-  grid-template-rows: auto auto auto minmax(180px, 0.65fr) minmax(0, 1fr);
+  grid-template-rows:
+    auto
+    auto
+    auto
+    auto
+    minmax(180px, 0.65fr)
+    minmax(0, 1fr);
   gap: 12px;
   overflow: hidden;
   padding: 16px;
@@ -398,6 +404,23 @@ button:disabled {
   margin: 4px 0 0;
   color: #697386;
   font-size: 13px;
+}
+
+.card-rail-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.card-rail-tabs button {
+  height: 34px;
+  font-size: 13px;
+}
+
+.card-rail-tabs button.selected {
+  border-color: #4d7cfe;
+  background: #eef5ff;
+  color: #244476;
 }
 
 .card-rail-search {
@@ -541,6 +564,100 @@ button:disabled {
   border-radius: 999px;
   background: #f3f5f9;
   color: #415065;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rail-ask-panel {
+  grid-row: 3 / -1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.rail-ask-form {
+  display: grid;
+  gap: 8px;
+}
+
+.rail-ask-form textarea {
+  width: 100%;
+  min-height: 96px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #b9c2d0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #243044;
+  font: inherit;
+  font-size: 14px;
+  resize: vertical;
+}
+
+.rail-ask-form textarea:focus {
+  border-color: #4d7cfe;
+  outline: 2px solid #d9e6ff;
+}
+
+.rail-ask-results {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 3px;
+}
+
+.rail-ask-result {
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  display: grid;
+  gap: 7px;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.rail-ask-result-heading {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rail-ask-result-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #1d2433;
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.rail-ask-result-heading span {
+  flex: 0 0 auto;
+  color: #4d7cfe;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rail-ask-result p {
+  margin: 0;
+  color: #415065;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.rail-ask-result small {
+  color: #697386;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 12px;
   font-weight: 700;
 }
@@ -1265,7 +1382,13 @@ dd {
   }
 
   .card-rail-content {
-    grid-template-rows: auto auto auto minmax(160px, 0.55fr) minmax(0, 1fr);
+    grid-template-rows:
+      auto
+      auto
+      auto
+      auto
+      minmax(160px, 0.55fr)
+      minmax(0, 1fr);
   }
 
   .card-rail-filters {

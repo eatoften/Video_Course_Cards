@@ -4,7 +4,11 @@ import pytest
 import app.card_embedding_service as card_embedding_service
 import app.main as main
 from app.card_embedding import vector_from_blob, vector_to_blob
-from app.card_embedding_store import get_card_embedding
+from app.card_embedding_store import (
+    get_card_embedding,
+    list_card_embeddings_for_course,
+    list_card_embeddings_for_job,
+)
 from app.card_embedding_text import (
     build_card_embedding_text,
     hash_card_embedding_text,
@@ -166,6 +170,60 @@ def test_embed_job_cards_and_skip_current_embeddings(monkeypatch, tmp_path):
         "dimension": 2,
     }
     assert second_embedder.texts == []
+
+
+def test_list_card_embeddings_for_job_and_course_returns_vectors(
+    monkeypatch,
+    tmp_path,
+):
+    job = create_uploaded_job(tmp_path)
+    first_card = save_card(job.id, "Linear Algebra")
+    second_card = save_card(job.id, "Deep Learning")
+    fake_embedder = FakeEmbedder(
+        [
+            [1.0, 0.0],
+            [0.0, 1.0],
+        ]
+    )
+    monkeypatch.setattr(
+        card_embedding_service,
+        "_create_default_embedder",
+        lambda: fake_embedder,
+    )
+
+    response = client.post(f"/jobs/{job.id}/card-embeddings")
+
+    assert response.status_code == 200
+
+    job_embeddings = list_card_embeddings_for_job(job.id)
+    course_embeddings = list_card_embeddings_for_course(job.course_id)
+
+    assert {
+        embedding.card_id
+        for embedding in job_embeddings
+    } == {
+        first_card["id"],
+        second_card["id"],
+    }
+    assert {
+        embedding.card_id
+        for embedding in course_embeddings
+    } == {
+        first_card["id"],
+        second_card["id"],
+    }
+
+    job_vectors_by_card_id = {
+        embedding.card_id: embedding.vector
+        for embedding in job_embeddings
+    }
+
+    assert job_vectors_by_card_id[first_card["id"]] == pytest.approx(
+        [1.0, 0.0]
+    )
+    assert job_vectors_by_card_id[second_card["id"]] == pytest.approx(
+        [0.0, 1.0]
+    )
 
 
 def test_card_embedding_status_detects_stale_card(monkeypatch, tmp_path):

@@ -124,6 +124,31 @@ def get_card_embedding_info(card_id: str) -> CardEmbeddingInfo | None:
     return _row_to_info(row)
 
 
+def list_card_embeddings_for_job(
+    job_id: str,
+) -> list[CardEmbedding]:
+    ensure_db()
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT card_embeddings.*
+            FROM card_embeddings
+            INNER JOIN knowledge_cards
+                ON knowledge_cards.id = card_embeddings.card_id
+            WHERE knowledge_cards.job_id = ?
+            ORDER BY knowledge_cards.source_start_seconds ASC,
+                     knowledge_cards.created_at ASC
+            """,
+            (job_id,),
+        ).fetchall()
+
+    return [
+        _row_to_embedding(row)
+        for row in rows
+    ]
+
+
 def list_card_embedding_infos_for_job(
     job_id: str,
 ) -> list[CardEmbeddingInfo]:
@@ -151,6 +176,33 @@ def list_card_embedding_infos_for_job(
 
     return [
         _row_to_info(row)
+        for row in rows
+    ]
+
+
+def list_card_embeddings_for_course(
+    course_id: str,
+) -> list[CardEmbedding]:
+    ensure_db()
+
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT card_embeddings.*
+            FROM card_embeddings
+            INNER JOIN knowledge_cards
+                ON knowledge_cards.id = card_embeddings.card_id
+            INNER JOIN jobs ON jobs.id = knowledge_cards.job_id
+            WHERE jobs.course_id = ?
+            ORDER BY jobs.created_at ASC,
+                     knowledge_cards.source_start_seconds ASC,
+                     knowledge_cards.created_at ASC
+            """,
+            (course_id,),
+        ).fetchall()
+
+    return [
+        _row_to_embedding(row)
         for row in rows
     ]
 
