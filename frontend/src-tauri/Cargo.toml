@@ -1,6 +1,6 @@
 [package]
 name = "video-course-cards"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local-first AI learning cards for course videos"
 authors = ["Video Course Cards"]
 edition = "2021"
