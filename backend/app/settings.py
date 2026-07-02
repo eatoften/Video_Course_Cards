@@ -119,17 +119,30 @@ def _default_data_dir(env_file_values: dict[str, str]) -> Path:
     return BACKEND_DIR / "data"
 
 
+def _default_db_path(
+    data_dir: Path,
+    env_file_values: dict[str, str],
+) -> Path:
+    configured_db_path = _env("VCC_DB_PATH", "", env_file_values).strip()
+
+    if configured_db_path:
+        return Path(configured_db_path)
+
+    if _env("VCC_DATA_DIR", "", env_file_values).strip() or _env_bool(
+        "VCC_DESKTOP",
+        False,
+        env_file_values,
+    ):
+        return data_dir / "data" / "jobs.db"
+
+    return BACKEND_DIR / "data" / "jobs.db"
+
+
 @cache
 def get_app_path_settings() -> AppPathSettings:
     env_file_values = _read_env_file()
     data_dir = _default_data_dir(env_file_values)
-    db_path = Path(
-        _env(
-            "VCC_DB_PATH",
-            str(data_dir / "data" / "jobs.db"),
-            env_file_values,
-        )
-    )
+    db_path = _default_db_path(data_dir, env_file_values)
     upload_dir = Path(
         _env(
             "VCC_UPLOAD_DIR",
