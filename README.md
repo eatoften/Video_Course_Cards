@@ -1,140 +1,131 @@
-# Video Course Cards
+<h1 align="center">Video Course Cards</h1>
 
-> Local-first AI learning workspace for turning long course videos into timestamp-grounded knowledge cards, searchable card memory, and portable Markdown study notes.
+<p align="center">
+  Turn long course videos into timestamp-grounded knowledge cards, local card memory, and Obsidian-friendly Markdown.
+</p>
 
-Video Course Cards is a Windows desktop demo and research prototype. It takes a local lecture video, validates it with FFmpeg/ffprobe, transcribes it with Whisper, stores the workflow in SQLite, generates claim-grounded knowledge cards with a local LLM, embeds cards with Sentence Transformers, and exports the result as Obsidian-friendly Markdown.
+<p align="center">
+  <a href="https://github.com/eatoften/Video_Course_Cards/releases">Download</a>
+  |
+  <a href="docs/tauri-desktop.md">Desktop build</a>
+  |
+  <a href="docs/local-llm.md">Local LLM setup</a>
+  |
+  <a href="docs/roadmap.md">Roadmap</a>
+  |
+  <a href="docs/rag-roadmap.md">RAG plan</a>
+</p>
 
-The current product shape is:
+<p align="center">
+  <img alt="Python 3.11" src="https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/React-TypeScript-61DAFB?logo=react&logoColor=black">
+  <img alt="Tauri" src="https://img.shields.io/badge/Tauri-desktop-FFC131?logo=tauri&logoColor=black">
+  <img alt="SQLite" src="https://img.shields.io/badge/SQLite-local%20first-003B57?logo=sqlite&logoColor=white">
+</p>
 
-```text
-local video
--> transcript
--> semantic transcript chunks
--> grounded knowledge cards
--> card embeddings
--> simple card-based RAG retrieval
--> Markdown export snapshot
-```
+## Overview
 
-The project is intentionally local-first:
+Video Course Cards is a local-first AI learning workspace for lecture videos. It turns a video into a transcript, cuts the transcript into semantic chunks, drafts grounded knowledge cards with a local LLM, stores everything in SQLite, embeds cards for retrieval, and exports portable Markdown snapshots.
 
-- user videos stay on the user's machine;
-- SQLite is the source of truth;
-- Markdown files are portable export snapshots;
-- local models are preferred through Ollama and Sentence Transformers;
-- generated claims keep evidence and timestamps instead of becoming unsupported notes.
-
-## Current Status
-
-This repository has a working end-to-end demo, not just a mockup.
-
-Implemented:
-
-- Windows desktop shell with Tauri.
-- FastAPI backend packaged as a Tauri sidecar.
-- React + TypeScript frontend.
-- SQLite persistence for courses, uploaded video jobs, transcript chunks, cards, notes, embeddings, and generation runs.
-- Local video upload and ffprobe validation.
-- FFmpeg audio extraction.
-- faster-whisper transcription.
-- Transcript timeline UI with selectable segments.
-- Semantic transcript chunking with Sentence Transformer embeddings.
-- Manual and automatic knowledge-card generation.
-- Claim-level grounding: each card claim can carry supporting transcript evidence and timestamps.
-- Card editing, deletion, tags, review state, and user notes.
-- Course-level card rail and card detail editing.
-- Card embeddings and dense retrieval baseline for RAG.
-- Markdown export for one job or all cards.
-- Runtime setup checklist for FFmpeg, ffprobe, Ollama/Qwen, embedding model, and Whisper runtime.
-- Windows NSIS installer build.
-
-Not yet production-ready:
-
-- no signed installer;
-- Windows is the only packaged target currently tested;
-- local model setup is still a user-managed step;
-- Markdown exports do not sync edits back into SQLite;
-- RAG currently retrieves relevant cards, but does not yet run a fully cited answer-generation assistant.
-
-## Install The Desktop Demo
-
-The intended user flow is:
+The project is not trying to be another generic "chat with your transcript" demo. The core object is a **claim-grounded knowledge card**: a structured learning unit whose claims point back to transcript evidence and timestamps.
 
 ```text
-GitHub Releases -> download Windows installer -> double-click -> launch app
+video -> transcript -> semantic chunks -> grounded cards -> card embeddings -> retrieval -> Markdown export
 ```
 
-Release page:
+SQLite is the source of truth. Markdown is an export format.
+
+## Why This Exists
+
+Long technical lectures contain more than raw transcript text. A useful learning system should preserve where an idea came from, what evidence supports it, how it connects to other cards, and how the user later edits or rejects it.
+
+This repository explores that pipeline as a local desktop application:
+
+- **Grounded generation**: cards keep claims, evidence, and source timestamps.
+- **Local-first storage**: videos, transcripts, cards, embeddings, and notes stay on the user's machine.
+- **Structured memory**: cards are JSON/SQLite records before they become Markdown.
+- **Retrieval baseline**: card embeddings support ordinary dense retrieval before more advanced graph-guided methods.
+- **Portable output**: exports are Obsidian-friendly Markdown snapshots.
+
+## Current Demo
+
+The current demo runs on Windows as a Tauri desktop app with a packaged FastAPI sidecar.
+
+It can:
+
+- upload local videos;
+- validate media with ffprobe;
+- extract audio with FFmpeg;
+- transcribe with faster-whisper;
+- show transcript segments next to the course workspace;
+- create semantic transcript chunks with Sentence Transformer embeddings;
+- generate cards manually from selected transcript text or automatically from chunks;
+- save, edit, delete, tag, and review cards;
+- attach user notes to cards;
+- embed cards and run dense card retrieval;
+- export one job or all cards as Markdown folders;
+- check local runtime dependencies such as FFmpeg, Ollama/Qwen, and embedding models.
+
+Still rough:
+
+- the installer is not code-signed;
+- Windows is the only packaged target currently exercised;
+- Ollama, Qwen, FFmpeg, and model caches are user-installed dependencies;
+- RAG currently retrieves cards, but answer generation with citations is still planned;
+- exported Markdown does not sync edits back into SQLite.
+
+## Install
+
+Download the latest Windows installer from:
 
 ```text
 https://github.com/eatoften/Video_Course_Cards/releases
 ```
 
-The lightweight installer includes:
+The installer includes:
 
 - Tauri desktop shell;
 - React UI;
-- packaged FastAPI backend sidecar;
-- SQLite schema and application code.
+- packaged FastAPI backend;
+- SQLite schema and app code.
 
-It does not bundle large local AI assets:
-
-- Ollama is installed separately;
-- Qwen model files are installed separately;
-- Sentence Transformer model cache is installed separately;
-- user videos and generated data are never bundled into the installer.
-
-Desktop user data is stored under:
-
-```text
-C:\Users\<user>\AppData\Local\Video Course Cards\
-```
-
-Typical first local model command:
+The installer does **not** bundle large model assets. Install local AI dependencies separately:
 
 ```powershell
 ollama pull qwen3:4b
 ```
 
-More details are in [docs/tauri-desktop.md](docs/tauri-desktop.md) and [docs/local-llm.md](docs/local-llm.md).
+Desktop data is stored under:
 
-## Developer Quick Start
-
-### Prerequisites
-
-- Python 3.11
-- uv
-- Node.js + npm
-- FFmpeg and ffprobe on `PATH`
-- Ollama for local LLM card generation
-- Rust/Cargo + MSVC build tools for Tauri desktop builds
-
-Check Tauri prerequisites:
-
-```powershell
-cd path\to\Video_Course_Cards\frontend
-npm.cmd exec tauri info
+```text
+C:\Users\<user>\AppData\Local\Video Course Cards\
 ```
 
-### Run Backend From Source
+See [docs/local-llm.md](docs/local-llm.md) for local model configuration.
+
+## Developer Setup
+
+Clone the repository, then install backend and frontend dependencies.
 
 ```powershell
-cd path\to\Video_Course_Cards\backend
+git clone https://github.com/eatoften/Video_Course_Cards.git
+cd Video_Course_Cards
+```
+
+Run the backend:
+
+```powershell
+cd backend
 $env:PYTHONUTF8='1'
 $env:PYTHONDONTWRITEBYTECODE='1'
 uv run python -B -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
 ```
 
-Health check:
+Run the frontend:
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8001/health
-```
-
-### Run Frontend From Source
-
-```powershell
-cd path\to\Video_Course_Cards\frontend
+cd frontend
 npm.cmd install
 npm.cmd run dev
 ```
@@ -145,218 +136,102 @@ Open:
 http://127.0.0.1:5174
 ```
 
-### Run Tauri Desktop Dev Mode
+## Desktop Build
 
-Build the backend sidecar first:
+Tauri requires Rust/Cargo and the Visual Studio C++ build tools on Windows.
+
+Build the backend sidecar:
 
 ```powershell
-cd path\to\Video_Course_Cards
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-desktop-backend.ps1
 ```
 
-Then start the desktop app:
+Run the desktop app in development:
 
 ```powershell
-cd path\to\Video_Course_Cards\frontend
+cd frontend
 npm.cmd run tauri:dev
 ```
 
-In desktop mode, Tauri starts or reuses the local FastAPI backend automatically.
-
-## Build The Windows Installer
-
-Local build:
+Build the Windows installer:
 
 ```powershell
-cd path\to\Video_Course_Cards
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows-installer.ps1
 ```
 
-If the backend sidecar has already been built:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows-installer.ps1 -SkipBackendBuild
-```
-
-Expected output:
+Output:
 
 ```text
 frontend\src-tauri\target\release\bundle\nsis\Video Course Cards_0.1.0_x64-setup.exe
 ```
 
-The repo also includes a GitHub Actions workflow:
-
-```text
-.github/workflows/windows-desktop-release.yml
-```
-
-Manual release helper:
-
-```powershell
-gh auth login
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish-github-release.ps1 -Tag v0.1.0
-```
-
-Automatic tag release:
+GitHub Actions can build and attach the installer to a tag release:
 
 ```powershell
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow builds the Windows installer and attaches it to the tag's GitHub Release.
-
-## How The App Works
-
-```mermaid
-flowchart LR
-    VIDEO["Local course video"] --> UPLOAD["FastAPI upload"]
-    UPLOAD --> PROBE["ffprobe validation"]
-    PROBE --> AUDIO["FFmpeg audio extraction"]
-    AUDIO --> ASR["faster-whisper transcription"]
-    ASR --> SEGMENTS["Timestamped transcript segments"]
-    SEGMENTS --> CHUNKS["Semantic transcript chunks"]
-    CHUNKS --> LLM["Local LLM card generation"]
-    LLM --> CARDS["SQLite knowledge_cards"]
-    CARDS --> EMBED["Card embeddings"]
-    EMBED --> RAG["Dense retrieval baseline"]
-    CARDS --> MD["Markdown export snapshot"]
-```
-
-The important design rule is:
-
-```text
-SQLite is the database.
-Markdown is an export format.
-```
-
-That means the app edits cards in SQLite, then exports Markdown when the user wants portable files for Obsidian or sharing.
+See [docs/tauri-desktop.md](docs/tauri-desktop.md).
 
 ## Architecture
 
 ```mermaid
-flowchart TB
-    subgraph Desktop["Desktop app"]
-        TAURI["Tauri / Rust shell"]
-        REACT["React + TypeScript UI"]
-        TAURI <--> REACT
+flowchart LR
+    subgraph Desktop["Tauri desktop"]
+        UI["React / TypeScript"]
+        RUST["Rust shell"]
     end
 
     subgraph Backend["FastAPI sidecar"]
-        API["HTTP API"]
+        API["HTTP routes"]
         JOBS["Job service"]
         PIPELINE["Video pipeline"]
-        CARDSVC["Card services"]
-        RAGSVC["RAG retrieval"]
+        CARDS["Card services"]
+        RAG["Retrieval services"]
     end
 
-    subgraph LocalAI["Local AI tools"]
+    subgraph LocalAI["Local AI runtime"]
         FFMPEG["FFmpeg / ffprobe"]
         WHISPER["faster-whisper"]
         EMB["Sentence Transformers"]
-        OLLAMA["Ollama / Qwen"]
+        LLM["Ollama / Qwen"]
     end
 
-    subgraph Storage["Local storage"]
-        SQLITE["SQLite"]
-        UPLOADS["Uploaded videos"]
-        TRANSCRIPTS["Transcript JSON"]
-        EXPORTS["Markdown exports"]
+    subgraph Storage["Local data"]
+        DB["SQLite"]
+        FILES["uploads / transcripts / exports"]
     end
 
-    REACT <--> API
-    TAURI --> API
+    UI <--> API
+    RUST --> API
     API --> JOBS
     JOBS --> PIPELINE
     PIPELINE --> FFMPEG
     PIPELINE --> WHISPER
-    CARDSVC --> OLLAMA
-    RAGSVC --> EMB
-    API <--> SQLITE
-    API <--> UPLOADS
-    API <--> TRANSCRIPTS
-    API <--> EXPORTS
+    CARDS --> LLM
+    RAG --> EMB
+    API <--> DB
+    API <--> FILES
 ```
 
-Repository layout:
+The backend is deliberately split by responsibility:
 
-```text
-backend/
-  app/
-    main.py                         FastAPI routes
-    job_service.py                  video job orchestration
-    job_store.py                    SQLite CRUD for jobs
-    video_pipeline.py               probe -> audio -> transcribe -> save
-    transcript_chunker.py           semantic transcript chunking
-    knowledge_card_service.py       card persistence workflow
-    card_embedding_service.py       card -> embedding pipeline
-    rag_service.py                  card retrieval baseline
-    desktop_server.py               packaged sidecar entrypoint
+| Layer | Responsibility |
+| --- | --- |
+| `main.py` | HTTP routes and response mapping |
+| `job_service.py` | video job orchestration |
+| `job_store.py` | SQLite CRUD for jobs |
+| `video_pipeline.py` | media probe, audio extraction, transcription |
+| `transcript_chunker.py` | semantic transcript chunking |
+| `knowledge_card_service.py` | card persistence and updates |
+| `card_embedding_service.py` | card text -> embedding workflow |
+| `rag_service.py` | card retrieval baseline |
+| `desktop_server.py` | packaged backend sidecar entrypoint |
 
-frontend/
-  src/
-    App.tsx                         main React app
-    App.css                         application styling
-  src-tauri/                        Tauri desktop shell
+## Knowledge Cards
 
-scripts/
-  build-desktop-backend.ps1         PyInstaller backend sidecar build
-  test-desktop-backend.ps1          sidecar smoke test
-  build-windows-installer.ps1       full desktop installer build
-  publish-github-release.ps1        draft GitHub release helper
-
-docs/
-  roadmap.md                        long-term roadmap
-  rag-roadmap.md                    RAG baseline plan
-  tauri-desktop.md                  desktop packaging notes
-  local-llm.md                      Ollama / local LLM setup
-```
-
-## Core API Surface
-
-The backend exposes routes for:
-
-- `GET /health`
-- `GET /runtime/status`
-- `POST /runtime/check`
-- `GET /llm/status`
-- `GET /llm/models`
-- `POST /videos`
-- `GET /jobs`
-- `POST /jobs/{job_id}/run`
-- `POST /jobs/{job_id}/retry`
-- `GET /jobs/{job_id}/transcript`
-- `POST /jobs/{job_id}/chunks`
-- `POST /jobs/{job_id}/cards/auto-generate`
-- `GET /jobs/{job_id}/cards`
-- `POST /jobs/{job_id}/cards`
-- `PATCH /cards/{card_id}`
-- `DELETE /cards/{card_id}`
-- `POST /cards/{card_id}/embedding`
-- `POST /courses/{course_id}/card-embeddings`
-- `POST /rag/retrieve`
-- `GET /jobs/{job_id}/cards/export/markdown`
-- `POST /jobs/{job_id}/cards/export/markdown/folder`
-- `GET /cards/export/markdown`
-- `POST /cards/export/markdown/folder`
-
-## Data Model Overview
-
-The current SQLite-backed model includes:
-
-- courses;
-- video jobs;
-- transcript records;
-- semantic transcript chunks;
-- knowledge cards;
-- card claims and evidence;
-- user notes attached to cards;
-- card embeddings;
-- automatic card generation runs.
-
-Knowledge cards are structured records rather than loose text blobs. A card contains a title, summary, tags, source job, source timestamp range, active-recall question and answer, and grounded claims.
-
-Example card shape:
+A card is stored as structured data, not just markdown text.
 
 ```json
 {
@@ -382,112 +257,84 @@ Example card shape:
 }
 ```
 
-## Testing
+This shape makes later work possible: duplicate detection, related-card search, graph edges, citation-aware RAG, and feedback-based evaluation.
 
-Backend tests:
+## API Surface
+
+Selected endpoints:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /videos` | upload and register a local video |
+| `POST /jobs/{job_id}/run` | run probe -> audio -> transcription |
+| `GET /jobs/{job_id}/transcript` | return timestamped transcript segments |
+| `POST /jobs/{job_id}/chunks` | generate semantic transcript chunks |
+| `POST /jobs/{job_id}/cards/auto-generate` | generate cards from chunks |
+| `GET /jobs/{job_id}/cards` | list cards for one video job |
+| `PATCH /cards/{card_id}` | edit a saved card |
+| `POST /cards/{card_id}/embedding` | embed one card |
+| `POST /courses/{course_id}/card-embeddings` | embed all cards in a course |
+| `POST /rag/retrieve` | retrieve relevant cards for a question |
+| `POST /jobs/{job_id}/cards/export/markdown/folder` | export one job as Markdown |
+| `POST /cards/export/markdown/folder` | export all cards as Markdown |
+| `GET /runtime/status` | inspect local runtime dependencies |
+
+## Tests
+
+Backend:
 
 ```powershell
-cd path\to\Video_Course_Cards\backend
+cd backend
 uv run pytest
 ```
 
-Frontend build:
+Frontend:
 
 ```powershell
-cd path\to\Video_Course_Cards\frontend
+cd frontend
 npm.cmd run build
 ```
 
-Tauri Rust check:
+Tauri:
 
 ```powershell
-cd path\to\Video_Course_Cards\frontend\src-tauri
+cd frontend\src-tauri
 cargo check
 ```
 
 Sidecar smoke test:
 
 ```powershell
-cd path\to\Video_Course_Cards
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-desktop-backend.ps1
-```
-
-## Configuration
-
-Common backend environment variables:
-
-```env
-VCC_DATA_DIR=
-VCC_DB_PATH=
-VCC_UPLOAD_DIR=
-VCC_TRANSCRIPT_DIR=
-VCC_EXPORT_DIR=
-VCC_LOG_DIR=
-VCC_BACKEND_LOG_FILE=
-VCC_DESKTOP=false
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen3:4b
-```
-
-Development mode defaults to repo-local data under `backend/data`.
-
-Desktop mode defaults to:
-
-```text
-C:\Users\<user>\AppData\Local\Video Course Cards\
 ```
 
 ## Roadmap
 
-Near-term:
+Near term:
 
-- improve automatic transcript chunk quality;
-- improve grounded card generation quality and latency;
-- add duplicate-card detection with embeddings;
+- improve automatic card generation reliability;
+- improve semantic chunk boundary quality;
+- detect duplicate or near-duplicate cards with embeddings;
 - show related cards in the UI;
-- turn card retrieval into a grounded answer-generation RAG assistant;
-- add evaluation records for unsupported claims, duplicate cards, generation latency, and retrieval hit rate.
+- turn card retrieval into a citation-grounded answer assistant;
+- add evaluation records for latency, unsupported claims, duplicates, and retrieval misses.
 
-Longer-term:
+Longer term:
 
 - build a card similarity graph;
-- add relationship types such as prerequisite, related, example_of, contrast_with, and part_of;
-- support human-in-the-loop knowledge graph editing;
-- use user corrections as a feedback dataset;
-- compare ordinary RAG against graph-guided retrieval and future agentic learning loops.
+- add relation types such as `prerequisite`, `example_of`, `contrast_with`, and `part_of`;
+- support human-in-the-loop graph editing;
+- compare ordinary dense RAG against graph-guided retrieval;
+- use user edits and save/delete decisions as a feedback dataset for future agentic learning loops.
 
-See:
+## Project Principles
 
-- [docs/roadmap.md](docs/roadmap.md)
-- [docs/rag-roadmap.md](docs/rag-roadmap.md)
-- [docs/tauri-desktop.md](docs/tauri-desktop.md)
-
-## Why This Project Matters
-
-Many learning tools stop at "chat with a transcript." This project is aimed at a more structured loop:
-
-```text
-watch -> transcribe -> ground claims -> save cards -> retrieve related cards -> evaluate failures -> improve
-```
-
-The research angle is not merely calling an LLM API. The interesting parts are:
-
-- local-first model orchestration;
-- evidence-grounded generation;
-- semantic chunking for long lectures;
-- card-level embedding and retrieval;
-- SQLite-backed personal knowledge memory;
-- portable Markdown export;
-- future graph-guided and feedback-trained learning systems.
-
-## Privacy Principles
-
-- Keep user videos local.
-- Keep generated cards and embeddings local by default.
-- Make external model providers opt-in.
-- Keep evidence attached to generated claims.
-- Treat Markdown export as a user-owned artifact.
-- Avoid hidden writes to a user's knowledge base.
+- Local data should stay local by default.
+- Claims should be traceable to evidence.
+- SQLite should remain the durable source of truth.
+- Markdown should be portable, inspectable, and tool-friendly.
+- Advanced AI features should be compared against simple baselines.
+- User corrections should become evaluation data before they become training data.
 
 ## License
 
