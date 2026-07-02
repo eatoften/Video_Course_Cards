@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/eatoften/Video_Course_Cards/releases">Download</a>
+  <a href="https://github.com/eatoften/Video_Course_Cards/releases/latest">Download</a>
   |
   <a href="docs/tauri-desktop.md">Desktop build</a>
   |
@@ -80,7 +80,7 @@ Still rough:
 Download the latest Windows installer from:
 
 ```text
-https://github.com/eatoften/Video_Course_Cards/releases
+https://github.com/eatoften/Video_Course_Cards/releases/latest
 ```
 
 The installer includes:
