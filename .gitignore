@@ -4,10 +4,15 @@ __pycache__/
 .venv/
 .env
 .env.local
+.desktop-smoke/
 
 backend/data/
+backend/build/
+backend/dist/
+backend/*.spec
 backend/.env
 backend/.env.local
 frontend/node_modules/
 frontend/.env.local
 frontend/dist/
+frontend/src-tauri/binaries/*.exe

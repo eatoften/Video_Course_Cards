@@ -6,12 +6,23 @@ import {
   type ChangeEvent,
   type MouseEvent,
 } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import './App.css'
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
+  import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8001'
+const BACKEND_HEALTH_TIMEOUT_MS = 1000
+const BACKEND_STARTUP_TIMEOUT_MS = 45000
+const BACKEND_POLL_INTERVAL_MS = 500
 
 const DEFAULT_COURSE_ID = 'uncategorized'
+const TAURI_INTERNALS_KEY = '__TAURI_INTERNALS__'
+
+declare global {
+  interface Window {
+    [TAURI_INTERNALS_KEY]?: unknown
+  }
+}
 
 type JobStatus =
   | 'uploaded'
@@ -93,6 +104,20 @@ type LlmModelList = {
   models: string[]
   available: boolean
   error_message: string | null
+}
+
+type RuntimeDependencyStatus = {
+  name: string
+  available: boolean
+  version: string | null
+  detail: string | null
+  install_hint: string | null
+  required_for: string[]
+}
+
+type RuntimeStatus = {
+  ready: boolean
+  dependencies: RuntimeDependencyStatus[]
 }
 
 type KnowledgeCardEvidence = {
@@ -295,11 +320,124 @@ type SegmentRange = {
   endIndex: number
 }
 
+type BackendProcessStatus = {
+  ready: boolean
+  mode: string
+  message: string
+}
+
+type BackendBootPhase = 'checking' | 'starting' | 'ready' | 'failed'
+
+type BackendBootState = {
+  phase: BackendBootPhase
+  message: string
+  mode: string
+}
+
 const runningStatuses: JobStatus[] = [
   'probing',
   'extracting_audio',
   'transcribing',
 ]
+
+function isTauriRuntime(): boolean {
+  return Boolean(window[TAURI_INTERNALS_KEY])
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+}
+
+async function checkBackendHealth(
+  timeoutMs = BACKEND_HEALTH_TIMEOUT_MS,
+): Promise<boolean> {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/health`, {
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+
+    return response.ok
+  } catch {
+    return false
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
+async function waitForBackendHealth(
+  timeoutMs = BACKEND_STARTUP_TIMEOUT_MS,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    if (await checkBackendHealth()) {
+      return true
+    }
+
+    await sleep(BACKEND_POLL_INTERVAL_MS)
+  }
+
+  return false
+}
+
+async function ensureBackendReady(): Promise<BackendBootState> {
+  if (await checkBackendHealth()) {
+    return {
+      phase: 'ready',
+      mode: 'external',
+      message: `Backend ready at ${API_BASE_URL}.`,
+    }
+  }
+
+  if (isTauriRuntime()) {
+    try {
+      const status = await invoke<BackendProcessStatus>('ensure_backend')
+
+      if (status.ready || (await waitForBackendHealth())) {
+        return {
+          phase: 'ready',
+          mode: status.mode || 'sidecar',
+          message: status.message || `Backend ready at ${API_BASE_URL}.`,
+        }
+      }
+
+      return {
+        phase: 'failed',
+        mode: status.mode || 'sidecar',
+        message:
+          status.message || 'Local backend did not become ready in time.',
+      }
+    } catch (error) {
+      return {
+        phase: 'failed',
+        mode: 'sidecar',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Failed to start local backend sidecar.',
+      }
+    }
+  }
+
+  if (await waitForBackendHealth(5000)) {
+    return {
+      phase: 'ready',
+      mode: 'external',
+      message: `Backend ready at ${API_BASE_URL}.`,
+    }
+  }
+
+  return {
+    phase: 'failed',
+    mode: 'manual',
+    message:
+      'Backend is not running. Start FastAPI manually, then retry.',
+  }
+}
 
 function createDefaultNoteForm(): NoteForm {
   return {
@@ -579,6 +717,7 @@ function App() {
   const [isExportingCards, setIsExportingCards] = useState(false)
   const [isDeletingJob, setIsDeletingJob] = useState(false)
   const [isCheckingLlm, setIsCheckingLlm] = useState(false)
+  const [isCheckingRuntime, setIsCheckingRuntime] = useState(false)
   const [isDraftingCards, setIsDraftingCards] = useState(false)
   const [isStartingAutoGeneration, setIsStartingAutoGeneration] =
     useState(false)
@@ -586,6 +725,13 @@ function App() {
   const [generationStatus, setGenerationStatus] = useState<string | null>(null)
   const [exportMessage, setExportMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null)
+  const [isRuntimePanelOpen, setIsRuntimePanelOpen] = useState(false)
+  const [backendBoot, setBackendBoot] = useState<BackendBootState>({
+    phase: 'checking',
+    mode: isTauriRuntime() ? 'sidecar' : 'manual',
+    message: 'Checking local backend.',
+  })
 
   const activeSegmentIndex = useMemo(() => {
     if (!transcript) {
@@ -618,6 +764,12 @@ function App() {
       selectedRange.endIndex + 1,
     )
   }, [selectedRange, transcript])
+
+  const missingRuntimeDependencies = useMemo(() => {
+    return runtimeStatus?.dependencies.filter(
+      (dependency) => !dependency.available,
+    ) ?? []
+  }, [runtimeStatus])
 
   const filteredCourseCardIndex = useMemo(() => {
     const query = cardRailSearch.trim().toLowerCase()
@@ -1236,6 +1388,29 @@ function App() {
       )
     } finally {
       setIsCheckingLlm(false)
+    }
+  }
+
+  async function checkRuntimeStatus() {
+    setIsCheckingRuntime(true)
+
+    try {
+      const status = await fetchJson<RuntimeStatus>('/runtime/check', {
+        method: 'POST',
+      })
+      setRuntimeStatus(status)
+
+      if (status.dependencies.some((dependency) => !dependency.available)) {
+        setIsRuntimePanelOpen(true)
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Runtime status check failed.',
+      )
+    } finally {
+      setIsCheckingRuntime(false)
     }
   }
 
@@ -2528,9 +2703,40 @@ function App() {
   }
 
   useEffect(() => {
-    void checkLlmStatus()
-    void loadCourses()
+    let cancelled = false
+
+    async function bootBackend() {
+      setBackendBoot({
+        phase: isTauriRuntime() ? 'starting' : 'checking',
+        mode: isTauriRuntime() ? 'sidecar' : 'manual',
+        message: isTauriRuntime()
+          ? 'Starting local backend.'
+          : 'Checking local backend.',
+      })
+
+      const nextBootState = await ensureBackendReady()
+
+      if (!cancelled) {
+        setBackendBoot(nextBootState)
+      }
+    }
+
+    void bootBackend()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
+
+  useEffect(() => {
+    if (backendBoot.phase !== 'ready') {
+      return
+    }
+
+    void checkLlmStatus()
+    void checkRuntimeStatus()
+    void loadCourses()
+  }, [backendBoot.phase])
 
   useEffect(() => {
     if (!selectedCourseId) {
@@ -2678,6 +2884,43 @@ function App() {
     !isAutoGenerating &&
     !isDraftingCards
 
+  if (backendBoot.phase !== 'ready') {
+    return (
+      <main className="app-shell backend-startup">
+        <section className="backend-startup-panel">
+          <div>
+            <p className="subtle">Video Course Cards</p>
+            <h1>
+              {backendBoot.phase === 'failed'
+                ? 'Local backend unavailable'
+                : 'Starting local backend'}
+            </h1>
+          </div>
+          <p>{backendBoot.message}</p>
+          <div className="backend-startup-meta">
+            <span>mode: {backendBoot.mode}</span>
+            <span>api: {API_BASE_URL}</span>
+          </div>
+          {backendBoot.phase === 'failed' && (
+            <button
+              type="button"
+              onClick={() => {
+                setBackendBoot({
+                  phase: 'checking',
+                  mode: isTauriRuntime() ? 'sidecar' : 'manual',
+                  message: 'Retrying local backend.',
+                })
+                void ensureBackendReady().then(setBackendBoot)
+              }}
+            >
+              Retry
+            </button>
+          )}
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="app-shell">
       <header className="top-bar">
@@ -2718,6 +2961,26 @@ function App() {
               </option>
             )}
           </select>
+          <button
+            type="button"
+            className={`runtime-pill ${
+              missingRuntimeDependencies.length === 0
+                ? 'runtime-ready'
+                : 'runtime-needs-setup'
+            }`}
+            onClick={() => {
+              setIsRuntimePanelOpen((isOpen) => !isOpen)
+              if (!runtimeStatus) {
+                void checkRuntimeStatus()
+              }
+            }}
+          >
+            {isCheckingRuntime
+              ? 'checking runtime'
+              : missingRuntimeDependencies.length === 0
+              ? 'runtime ready'
+              : `${missingRuntimeDependencies.length} setup items`}
+          </button>
           <div className={`status-pill status-${job?.status ?? 'idle'}`}>
             {job?.status ?? 'idle'}
           </div>
@@ -2726,6 +2989,58 @@ function App() {
 
       <section className="workspace">
         <div className="media-pane">
+          {isRuntimePanelOpen && runtimeStatus && (
+            <section className="runtime-panel">
+              <div className="runtime-panel-header">
+                <div>
+                  <div className="panel-title">Local runtime</div>
+                  <p>
+                    Checks local tools used by transcription, card generation,
+                    semantic search, and RAG.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={isCheckingRuntime}
+                  onClick={() => void checkRuntimeStatus()}
+                >
+                  {isCheckingRuntime ? 'Checking' : 'Re-check'}
+                </button>
+              </div>
+              <div className="runtime-checklist">
+                {runtimeStatus.dependencies.map((dependency) => (
+                  <div
+                    key={dependency.name}
+                    className={[
+                      'runtime-check',
+                      dependency.available ? 'available' : 'missing',
+                    ].join(' ')}
+                  >
+                    <div>
+                      <strong>{dependency.name}</strong>
+                      <span>
+                        {dependency.available ? 'available' : 'missing'}
+                      </span>
+                    </div>
+                    {dependency.version && (
+                      <p>{dependency.version}</p>
+                    )}
+                    {dependency.detail && (
+                      <p>{dependency.detail}</p>
+                    )}
+                    {dependency.required_for.length > 0 && (
+                      <small>
+                        Used for {dependency.required_for.join(', ')}
+                      </small>
+                    )}
+                    {dependency.install_hint && (
+                      <code>{dependency.install_hint}</code>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
           <div className="toolbar">
             <div className="current-course-label">
               {selectedCourse?.title ?? 'No course'}

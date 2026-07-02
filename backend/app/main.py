@@ -1,6 +1,5 @@
 from contextlib import asynccontextmanager
 from functools import cache
-from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, UploadFile
 from fastapi import status
@@ -17,6 +16,7 @@ from . import job_service
 from . import knowledge_card_service
 from . import knowledge_card_note_service
 from . import rag_service
+from . import runtime_service
 from . import transcript_chunk_service
 from .course import Course, CourseCreate, CourseUpdate
 from .card_generation_run import AutoCardGenerationRequest, CardGenerationRun
@@ -37,14 +37,16 @@ from .knowledge_card_note import (
 )
 from .llm_client import LLMModelList, LLMStatus, LocalLLMClient
 from .rag import RagRetrieveRequest, RagRetrieveResponse
+from .runtime_status import RuntimeStatus
+from .settings import get_app_path_settings
 from .transcription import FasterWhisperTranscriber, TranscriptionResult
 from .transcript_chunk import TranscriptChunk, TranscriptChunkGenerationRequest
 from .video_pipeline import VideoPipeline
 
 
-BACKEND_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BACKEND_DIR / "data"
-UPLOAD_DIR = DATA_DIR / "uploads"
+APP_PATHS = get_app_path_settings()
+DATA_DIR = APP_PATHS.data_dir
+UPLOAD_DIR = APP_PATHS.upload_dir
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -350,8 +352,10 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5174",
+        "http://tauri.localhost",
+        "tauri://localhost",
     ],
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1):\d+",
+    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1):\d+|https?://tauri\.localhost|tauri://localhost)$",
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
@@ -378,6 +382,22 @@ def get_llm_client() -> LocalLLMClient:
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.get(
+    "/runtime/status",
+    response_model=RuntimeStatus,
+)
+def get_runtime_status() -> RuntimeStatus:
+    return runtime_service.get_runtime_status()
+
+
+@app.post(
+    "/runtime/check",
+    response_model=RuntimeStatus,
+)
+def check_runtime_status() -> RuntimeStatus:
+    return runtime_service.get_runtime_status()
 
 
 @app.get(

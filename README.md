@@ -6,6 +6,44 @@
 
 Video Course Cards is a local-first desktop application for learning from lectures, tutorials, and technical videos. It aligns speech, transcript, visual context, and existing personal notes on a shared timeline, then converts selected concepts into structured, traceable knowledge cards.
 
+## Install The Desktop Demo
+
+The desktop demo is packaged as a lightweight Windows installer:
+
+```text
+GitHub Releases -> download installer -> double-click -> launch app
+```
+
+Installer link:
+
+```text
+https://github.com/eatoften/Video_Course_Cards/releases
+```
+
+The installer includes the desktop shell, React UI, FastAPI sidecar, and SQLite schema code. It does not bundle large local AI assets. On first launch, the app shows a runtime checklist for local dependencies such as FFmpeg, Ollama, the selected Qwen model, and the embedding model cache.
+
+User data stays local by default:
+
+```text
+C:\Users\<user>\AppData\Local\Video Course Cards\
+```
+
+Local model setup example:
+
+```powershell
+ollama pull qwen3:4b
+```
+
+For developer build instructions, see [docs/tauri-desktop.md](docs/tauri-desktop.md).
+
+Maintainers can build the installer locally with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows-installer.ps1
+```
+
+The repository also includes a GitHub Actions workflow that can build the Windows installer manually or attach it to a `v*` tag release.
+
 Instead of becoming another “chat with your documents” application, the project focuses on a harder workflow:
 
 ```text

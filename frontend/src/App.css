@@ -6,6 +6,51 @@
   color: #1d2433;
 }
 
+.backend-startup {
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+}
+
+.backend-startup-panel {
+  width: min(520px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 28px;
+  border: 1px solid #d8dde8;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 45px rgb(29 36 51 / 10%);
+}
+
+.backend-startup-panel h1 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.backend-startup-panel p {
+  margin: 0;
+  color: #334155;
+}
+
+.backend-startup-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.backend-startup-meta span {
+  padding: 6px 9px;
+  border: 1px solid #d8dde8;
+  border-radius: 999px;
+  background: #f7f8fb;
+  color: #536075;
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .top-bar {
   display: flex;
   align-items: center;
@@ -40,6 +85,24 @@
   min-width: 168px;
   border-radius: 999px;
   text-transform: lowercase;
+}
+
+.runtime-pill {
+  min-width: 150px;
+  border-radius: 999px;
+  text-transform: lowercase;
+}
+
+.runtime-ready {
+  border-color: #86d39a;
+  background: #ebf8ee;
+  color: #1f7a3a;
+}
+
+.runtime-needs-setup {
+  border-color: #f1c27d;
+  background: #fff8e8;
+  color: #8a5a11;
 }
 
 .model-select {
@@ -241,6 +304,93 @@ button:disabled {
   font-size: 13px;
   font-weight: 650;
   overflow-wrap: anywhere;
+}
+
+.runtime-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid #d8dde8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.runtime-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.runtime-panel-header p {
+  margin: 4px 0 0;
+  color: #697386;
+  font-size: 13px;
+}
+
+.runtime-checklist {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.runtime-check {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #d8dde8;
+  border-radius: 8px;
+  background: #f7f8fb;
+}
+
+.runtime-check > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.runtime-check strong {
+  overflow-wrap: anywhere;
+}
+
+.runtime-check span {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.runtime-check.available span {
+  background: #dff5e5;
+  color: #1f7a3a;
+}
+
+.runtime-check.missing span {
+  background: #fff0d2;
+  color: #8a5a11;
+}
+
+.runtime-check p,
+.runtime-check small {
+  margin: 0;
+  color: #536075;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.runtime-check code {
+  display: block;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: #172033;
+  color: #f8fafc;
+  font-size: 12px;
+  overflow-x: auto;
 }
 
 .error-text {

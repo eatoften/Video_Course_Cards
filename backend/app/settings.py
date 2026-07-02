@@ -25,6 +25,15 @@ class EmbeddingSettings(BaseModel):
     local_files_only: bool = True
 
 
+class AppPathSettings(BaseModel):
+    data_dir: Path
+    db_path: Path
+    upload_dir: Path
+    transcript_dir: Path
+    export_dir: Path
+    log_dir: Path
+
+
 def _read_env_file() -> dict[str, str]:
     env_path = BACKEND_DIR / ".env"
 
@@ -93,6 +102,71 @@ def _env_bool(
         return False
 
     return default
+
+
+def _default_data_dir(env_file_values: dict[str, str]) -> Path:
+    configured_data_dir = _env("VCC_DATA_DIR", "", env_file_values).strip()
+
+    if configured_data_dir:
+        return Path(configured_data_dir)
+
+    if _env_bool("VCC_DESKTOP", False, env_file_values):
+        local_app_data = os.environ.get("LOCALAPPDATA")
+
+        if local_app_data:
+            return Path(local_app_data) / "Video Course Cards"
+
+    return BACKEND_DIR / "data"
+
+
+@cache
+def get_app_path_settings() -> AppPathSettings:
+    env_file_values = _read_env_file()
+    data_dir = _default_data_dir(env_file_values)
+    db_path = Path(
+        _env(
+            "VCC_DB_PATH",
+            str(data_dir / "data" / "jobs.db"),
+            env_file_values,
+        )
+    )
+    upload_dir = Path(
+        _env(
+            "VCC_UPLOAD_DIR",
+            str(data_dir / "uploads"),
+            env_file_values,
+        )
+    )
+    transcript_dir = Path(
+        _env(
+            "VCC_TRANSCRIPT_DIR",
+            str(data_dir / "transcripts"),
+            env_file_values,
+        )
+    )
+    export_dir = Path(
+        _env(
+            "VCC_EXPORT_DIR",
+            str(data_dir / "exports"),
+            env_file_values,
+        )
+    )
+    log_dir = Path(
+        _env(
+            "VCC_LOG_DIR",
+            str(data_dir / "logs"),
+            env_file_values,
+        )
+    )
+
+    return AppPathSettings(
+        data_dir=data_dir,
+        db_path=db_path,
+        upload_dir=upload_dir,
+        transcript_dir=transcript_dir,
+        export_dir=export_dir,
+        log_dir=log_dir,
+    )
 
 
 @cache

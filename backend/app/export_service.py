@@ -18,12 +18,13 @@ from .markdown_export import (
     safe_markdown_filename,
     safe_path_component,
 )
+from .settings import get_app_path_settings
 
 
 DEFAULT_EXPORT_DIR = Path(
     os.environ.get(
         "VCC_EXPORT_DIR",
-        str(Path.home() / "Desktop" / "cards"),
+        str(get_app_path_settings().export_dir),
     )
 )
 JOB_FOLDER_MANIFEST = ".vcc-job-export-manifest.json"

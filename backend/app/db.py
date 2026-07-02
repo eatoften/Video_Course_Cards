@@ -4,12 +4,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .course import DEFAULT_COURSE_ID, DEFAULT_COURSE_TITLE
+from .settings import get_app_path_settings
 
-DEFAULT_DB_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "data"
-    / "jobs.db"
-)
+DEFAULT_DB_PATH = get_app_path_settings().db_path
 
 _db_path = DEFAULT_DB_PATH
 _initialized_paths: set[Path] = set()
