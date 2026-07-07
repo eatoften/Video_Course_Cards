@@ -281,6 +281,59 @@ def init_db() -> None:
 
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS card_relations (
+                id TEXT PRIMARY KEY,
+                course_id TEXT NOT NULL,
+                source_card_id TEXT NOT NULL,
+                target_card_id TEXT NOT NULL,
+                relation_type TEXT NOT NULL,
+                score REAL NOT NULL,
+                method TEXT NOT NULL,
+                model TEXT,
+                explanation TEXT,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_card_relations_course_id
+            ON card_relations (course_id)
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_card_relations_source_card_id
+            ON card_relations (source_card_id)
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_card_relations_target_card_id
+            ON card_relations (target_card_id)
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                idx_card_relations_unique_pair_type
+            ON card_relations (
+                source_card_id,
+                target_card_id,
+                relation_type,
+                method
+            )
+            """
+        )
+
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS transcript_chunks (
                 id TEXT PRIMARY KEY,
                 course_id TEXT NOT NULL,
