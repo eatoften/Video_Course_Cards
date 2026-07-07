@@ -28,7 +28,7 @@
 
 Video Course Cards is a local-first AI learning workspace for lecture videos. It turns a video into a transcript, cuts the transcript into semantic chunks, drafts grounded knowledge cards with a local LLM, stores everything in SQLite, embeds cards for retrieval, and exports portable Markdown snapshots.
 
-The project is not trying to be another generic "chat with your transcript" demo. The core object is a **claim-grounded knowledge card**: a structured learning unit whose claims point back to transcript evidence and timestamps.
+The project is not trying to be another generic "chat with your transcript" demo. The core object is a **claim-grounded knowledge card**: a structured learning unit whose claims point back to transcript evidence and timestamps. And the future plan is to turn these cards in to a graph which can serve as an external world model that a controller can plan over, while a decoder can take the plan and graph as an input to generate answers.
 
 ```text
 video -> transcript -> semantic chunks -> grounded cards -> card embeddings -> retrieval -> Markdown export
