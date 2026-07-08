@@ -348,6 +348,13 @@ def delete_card(card_id: str) -> None:
 
     with connect() as conn:
         conn.execute(
+            """
+            DELETE FROM card_relations
+            WHERE source_card_id = ? OR target_card_id = ?
+            """,
+            (card_id, card_id),
+        )
+        conn.execute(
             "DELETE FROM card_embeddings WHERE card_id = ?",
             (card_id,),
         )
@@ -365,6 +372,18 @@ def delete_cards_for_job(job_id: str) -> None:
     ensure_db()
 
     with connect() as conn:
+        conn.execute(
+            """
+            DELETE FROM card_relations
+            WHERE source_card_id IN (
+                SELECT id FROM knowledge_cards WHERE job_id = ?
+            )
+            OR target_card_id IN (
+                SELECT id FROM knowledge_cards WHERE job_id = ?
+            )
+            """,
+            (job_id, job_id),
+        )
         conn.execute(
             """
             DELETE FROM card_embeddings
@@ -393,6 +412,25 @@ def delete_cards_for_course(course_id: str) -> None:
     ensure_db()
 
     with connect() as conn:
+        conn.execute(
+            """
+            DELETE FROM card_relations
+            WHERE course_id = ?
+               OR source_card_id IN (
+                    SELECT knowledge_cards.id
+                    FROM knowledge_cards
+                    INNER JOIN jobs ON jobs.id = knowledge_cards.job_id
+                    WHERE jobs.course_id = ?
+               )
+               OR target_card_id IN (
+                    SELECT knowledge_cards.id
+                    FROM knowledge_cards
+                    INNER JOIN jobs ON jobs.id = knowledge_cards.job_id
+                    WHERE jobs.course_id = ?
+               )
+            """,
+            (course_id, course_id, course_id),
+        )
         conn.execute(
             """
             DELETE FROM card_embeddings
@@ -432,6 +470,7 @@ def clear_cards() -> None:
     ensure_db()
 
     with connect() as conn:
+        conn.execute("DELETE FROM card_relations")
         conn.execute("DELETE FROM card_embeddings")
         conn.execute("DELETE FROM knowledge_card_notes")
         conn.execute("DELETE FROM knowledge_cards")

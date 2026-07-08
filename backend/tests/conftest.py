@@ -2,6 +2,7 @@ import pytest
 
 from app.db import configure_db, init_db
 from app.card_generation_run_store import clear_runs
+from app.card_relation_store import clear_card_relations
 from app.job_store import clear_jobs
 from app.knowledge_card_store import clear_cards
 from app.knowledge_card_note_store import clear_notes
@@ -13,6 +14,7 @@ def isolated_job_db(tmp_path_factory):
 
     configure_db(db_dir / "jobs.db")
     init_db()
+    clear_card_relations()
     clear_notes()
     clear_runs()
     clear_cards()
@@ -21,6 +23,7 @@ def isolated_job_db(tmp_path_factory):
 
     yield
 
+    clear_card_relations()
     clear_notes()
     clear_runs()
     clear_cards()

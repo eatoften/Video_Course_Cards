@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from . import auto_card_generation_service
 from . import card_embedding_service
+from . import card_relation_service
 from . import card_service
 from . import course_service
 from . import export_service
@@ -21,6 +22,14 @@ from . import transcript_chunk_service
 from .course import Course, CourseCreate, CourseUpdate
 from .card_generation_run import AutoCardGenerationRequest, CardGenerationRun
 from .card_embedding import CardEmbeddingBatchResult, CardEmbeddingStatus
+from .card_relation import (
+    CardRelatedCardsResponse,
+    CardRelation,
+    CardRelationRecomputeRequest,
+    CardRelationRecomputeResult,
+    CardRelationUpdate,
+    CourseCardRelationsGraph,
+)
 from .db import init_db
 from .job import VideoJob, VideoJobStatus
 from .job_service import TranscriptContext
@@ -301,6 +310,36 @@ def raise_card_embedding_http_error(
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Unexpected card embedding service error.",
+    ) from exc
+
+
+def raise_card_relation_http_error(
+    exc: card_relation_service.CardRelationServiceError,
+) -> None:
+    if isinstance(
+        exc,
+        (
+            card_relation_service.CardRelationNotFoundError,
+            card_relation_service.CardRelationCardNotFoundError,
+        ),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(
+        exc,
+        card_relation_service.InvalidCardRelationRequestError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unexpected card relation service error.",
     ) from exc
 
 
@@ -599,6 +638,40 @@ def get_course_card_embedding_status(
         raise_course_http_error(exc)
     except card_embedding_service.CardEmbeddingServiceError as exc:
         raise_card_embedding_http_error(exc)
+
+
+@app.post(
+    "/courses/{course_id}/card-relations/recompute",
+    response_model=CardRelationRecomputeResult,
+)
+def recompute_course_card_relations(
+    course_id: str,
+    request: CardRelationRecomputeRequest | None = None,
+) -> CardRelationRecomputeResult:
+    try:
+        return card_relation_service.recompute_course_card_relations(
+            course_id,
+            request,
+        )
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+    except card_relation_service.CardRelationServiceError as exc:
+        raise_card_relation_http_error(exc)
+
+
+@app.get(
+    "/courses/{course_id}/card-relations",
+    response_model=CourseCardRelationsGraph,
+)
+def get_course_card_relations(
+    course_id: str,
+) -> CourseCardRelationsGraph:
+    try:
+        return card_relation_service.get_course_card_relations_graph(
+            course_id
+        )
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
 
 
 @app.delete(
@@ -969,6 +1042,17 @@ def save_all_cards_markdown_folder_export():
 
 
 @app.get(
+    "/cards/{card_id}/related",
+    response_model=CardRelatedCardsResponse,
+)
+def get_card_related_cards(card_id: str) -> CardRelatedCardsResponse:
+    try:
+        return card_relation_service.get_related_cards(card_id)
+    except card_relation_service.CardRelationServiceError as exc:
+        raise_card_relation_http_error(exc)
+
+
+@app.get(
     "/cards/{card_id}",
     response_model=KnowledgeCard,
 )
@@ -1050,6 +1134,36 @@ def delete_card_note(note_id: str) -> Response:
         knowledge_card_note_service.delete_card_note(note_id)
     except knowledge_card_note_service.KnowledgeCardNoteServiceError as exc:
         raise_knowledge_card_note_http_error(exc)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.patch(
+    "/card-relations/{relation_id}",
+    response_model=CardRelation,
+)
+def update_card_relation(
+    relation_id: str,
+    request: CardRelationUpdate,
+) -> CardRelation:
+    try:
+        return card_relation_service.update_saved_card_relation(
+            relation_id,
+            request,
+        )
+    except card_relation_service.CardRelationServiceError as exc:
+        raise_card_relation_http_error(exc)
+
+
+@app.delete(
+    "/card-relations/{relation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_card_relation(relation_id: str) -> Response:
+    try:
+        card_relation_service.delete_saved_card_relation(relation_id)
+    except card_relation_service.CardRelationServiceError as exc:
+        raise_card_relation_http_error(exc)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
