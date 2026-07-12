@@ -96,6 +96,7 @@ def _row_to_card(row: Row) -> KnowledgeCard:
     return KnowledgeCard(
         id=row["id"],
         job_id=row["job_id"],
+        card_kind=row["card_kind"],
         title=row["title"],
         summary=row["summary"],
         key_points=_key_points_from_json(row["key_points"]),
@@ -103,11 +104,8 @@ def _row_to_card(row: Row) -> KnowledgeCard:
         unsupported_terms=_unsupported_terms_from_json(
             row["unsupported_terms"]
         ),
-        question=row["question"],
-        answer=row["answer"],
-        difficulty=row["difficulty"],
         tags=_tags_from_json(row["tags"]),
-        review_state=row["review_state"],
+        content_status=row["content_status"],
         source_start_seconds=row["source_start_seconds"],
         source_end_seconds=row["source_end_seconds"],
         provider=row["provider"],
@@ -123,13 +121,15 @@ def _row_to_card_index_item(row: Row) -> KnowledgeCardIndexItem:
         job_id=row["job_id"],
         title=row["title"],
         summary=row["summary"],
-        difficulty=row["difficulty"],
+        card_kind=row["card_kind"],
         tags=_tags_from_json(row["tags"]),
-        review_state=row["review_state"],
+        content_status=row["content_status"],
+        review_item_count=row["review_item_count"],
         source_video=row["source_video"],
         source_start_seconds=row["source_start_seconds"],
         source_end_seconds=row["source_end_seconds"],
         note_count=row["note_count"],
+        learning_document_count=row["learning_document_count"],
         created_at=_datetime_from_text(row["created_at"]),
         updated_at=_datetime_from_text(row["updated_at"]),
     )
@@ -144,37 +144,33 @@ def create_card(card: KnowledgeCard) -> None:
             INSERT INTO knowledge_cards (
                 id,
                 job_id,
+                card_kind,
                 title,
                 summary,
                 key_points,
                 claims,
                 unsupported_terms,
-                question,
-                answer,
-                difficulty,
                 tags,
-                review_state,
+                content_status,
                 source_start_seconds,
                 source_end_seconds,
                 provider,
                 model,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 card.id,
                 card.job_id,
+                card.card_kind,
                 card.title,
                 card.summary,
                 _key_points_to_json(card),
                 _claims_to_json(card),
                 _unsupported_terms_to_json(card),
-                card.question,
-                card.answer,
-                card.difficulty,
                 _tags_to_json(card),
-                card.review_state,
+                card.content_status,
                 card.source_start_seconds,
                 card.source_end_seconds,
                 card.provider,
@@ -269,9 +265,9 @@ def list_card_index_for_course(
                 knowledge_cards.job_id,
                 knowledge_cards.title,
                 knowledge_cards.summary,
-                knowledge_cards.difficulty,
+                knowledge_cards.card_kind,
                 knowledge_cards.tags,
-                knowledge_cards.review_state,
+                knowledge_cards.content_status,
                 COALESCE(
                     jobs.original_filename,
                     jobs.stored_name,
@@ -281,11 +277,18 @@ def list_card_index_for_course(
                 knowledge_cards.source_end_seconds,
                 knowledge_cards.created_at,
                 knowledge_cards.updated_at,
-                COUNT(knowledge_card_notes.id) AS note_count
+                COUNT(DISTINCT knowledge_card_notes.id) AS note_count,
+                COUNT(DISTINCT review_items.id) AS review_item_count,
+                COUNT(DISTINCT learning_document_cards.document_id)
+                    AS learning_document_count
             FROM knowledge_cards
             INNER JOIN jobs ON jobs.id = knowledge_cards.job_id
             LEFT JOIN knowledge_card_notes
                 ON knowledge_card_notes.card_id = knowledge_cards.id
+            LEFT JOIN review_items
+                ON review_items.card_id = knowledge_cards.id
+            LEFT JOIN learning_document_cards
+                ON learning_document_cards.card_id = knowledge_cards.id
             WHERE jobs.course_id = ?
             GROUP BY knowledge_cards.id
             ORDER BY
@@ -306,15 +309,13 @@ def update_card(card: KnowledgeCard) -> None:
             """
             UPDATE knowledge_cards
             SET title = ?,
+                card_kind = ?,
                 summary = ?,
                 key_points = ?,
                 claims = ?,
                 unsupported_terms = ?,
-                question = ?,
-                answer = ?,
-                difficulty = ?,
                 tags = ?,
-                review_state = ?,
+                content_status = ?,
                 source_start_seconds = ?,
                 source_end_seconds = ?,
                 provider = ?,
@@ -324,15 +325,13 @@ def update_card(card: KnowledgeCard) -> None:
             """,
             (
                 card.title,
+                card.card_kind,
                 card.summary,
                 _key_points_to_json(card),
                 _claims_to_json(card),
                 _unsupported_terms_to_json(card),
-                card.question,
-                card.answer,
-                card.difficulty,
                 _tags_to_json(card),
-                card.review_state,
+                card.content_status,
                 card.source_start_seconds,
                 card.source_end_seconds,
                 card.provider,
@@ -343,10 +342,43 @@ def update_card(card: KnowledgeCard) -> None:
         )
 
 
+def _delete_learning_documents_for_cards(
+    conn,
+    card_selector: str,
+    params: tuple,
+) -> None:
+    primary_documents = f"""
+        SELECT document_id FROM learning_document_cards
+        WHERE role = 'primary_anchor' AND card_id IN ({card_selector})
+    """
+    for table_name in ("learning_document_sources", "learning_document_versions"):
+        conn.execute(
+            f"DELETE FROM {table_name} WHERE document_id IN ({primary_documents})",
+            params,
+        )
+    conn.execute(
+        f"DELETE FROM learning_documents WHERE id IN ({primary_documents})",
+        params,
+    )
+    conn.execute(
+        f"DELETE FROM learning_document_cards WHERE document_id IN ({primary_documents})",
+        params,
+    )
+    conn.execute(
+        f"DELETE FROM learning_document_cards WHERE card_id IN ({card_selector})",
+        params,
+    )
+
+
 def delete_card(card_id: str) -> None:
     ensure_db()
 
     with connect() as conn:
+        _delete_learning_documents_for_cards(
+            conn,
+            "SELECT id FROM knowledge_cards WHERE id = ?",
+            (card_id,),
+        )
         conn.execute(
             """
             DELETE FROM card_relations
@@ -363,6 +395,21 @@ def delete_card(card_id: str) -> None:
             (card_id,),
         )
         conn.execute(
+            "DELETE FROM review_events WHERE review_item_id IN "
+            "(SELECT id FROM review_items WHERE card_id = ?)",
+            (card_id,),
+        )
+        conn.execute(
+            "DELETE FROM review_progress WHERE review_item_id IN "
+            "(SELECT id FROM review_items WHERE card_id = ?)",
+            (card_id,),
+        )
+        conn.execute("DELETE FROM review_items WHERE card_id = ?", (card_id,))
+        conn.execute(
+            "DELETE FROM topic_card_memberships WHERE card_id = ?",
+            (card_id,),
+        )
+        conn.execute(
             "DELETE FROM knowledge_cards WHERE id = ?",
             (card_id,),
         )
@@ -372,6 +419,11 @@ def delete_cards_for_job(job_id: str) -> None:
     ensure_db()
 
     with connect() as conn:
+        _delete_learning_documents_for_cards(
+            conn,
+            "SELECT id FROM knowledge_cards WHERE job_id = ?",
+            (job_id,),
+        )
         conn.execute(
             """
             DELETE FROM card_relations
@@ -402,6 +454,38 @@ def delete_cards_for_job(job_id: str) -> None:
             """,
             (job_id,),
         )
+        for table_name in ("review_events", "review_progress"):
+            conn.execute(
+                f"""
+                DELETE FROM {table_name}
+                WHERE review_item_id IN (
+                    SELECT review_items.id
+                    FROM review_items
+                    INNER JOIN knowledge_cards
+                        ON knowledge_cards.id = review_items.card_id
+                    WHERE knowledge_cards.job_id = ?
+                )
+                """,
+                (job_id,),
+            )
+        conn.execute(
+            """
+            DELETE FROM review_items
+            WHERE card_id IN (
+                SELECT id FROM knowledge_cards WHERE job_id = ?
+            )
+            """,
+            (job_id,),
+        )
+        conn.execute(
+            """
+            DELETE FROM topic_card_memberships
+            WHERE card_id IN (
+                SELECT id FROM knowledge_cards WHERE job_id = ?
+            )
+            """,
+            (job_id,),
+        )
         conn.execute(
             "DELETE FROM knowledge_cards WHERE job_id = ?",
             (job_id,),
@@ -412,6 +496,16 @@ def delete_cards_for_course(course_id: str) -> None:
     ensure_db()
 
     with connect() as conn:
+        _delete_learning_documents_for_cards(
+            conn,
+            """
+            SELECT knowledge_cards.id
+            FROM knowledge_cards
+            INNER JOIN jobs ON jobs.id = knowledge_cards.job_id
+            WHERE jobs.course_id = ?
+            """,
+            (course_id,),
+        )
         conn.execute(
             """
             DELETE FROM card_relations
@@ -455,6 +549,45 @@ def delete_cards_for_course(course_id: str) -> None:
             """,
             (course_id,),
         )
+        for table_name in ("review_events", "review_progress"):
+            conn.execute(
+                f"""
+                DELETE FROM {table_name}
+                WHERE review_item_id IN (
+                    SELECT review_items.id
+                    FROM review_items
+                    INNER JOIN knowledge_cards
+                        ON knowledge_cards.id = review_items.card_id
+                    INNER JOIN jobs ON jobs.id = knowledge_cards.job_id
+                    WHERE jobs.course_id = ?
+                )
+                """,
+                (course_id,),
+            )
+        conn.execute(
+            """
+            DELETE FROM review_items
+            WHERE card_id IN (
+                SELECT knowledge_cards.id
+                FROM knowledge_cards
+                INNER JOIN jobs ON jobs.id = knowledge_cards.job_id
+                WHERE jobs.course_id = ?
+            )
+            """,
+            (course_id,),
+        )
+        conn.execute(
+            """
+            DELETE FROM topic_card_memberships
+            WHERE card_id IN (
+                SELECT knowledge_cards.id
+                FROM knowledge_cards
+                INNER JOIN jobs ON jobs.id = knowledge_cards.job_id
+                WHERE jobs.course_id = ?
+            )
+            """,
+            (course_id,),
+        )
         conn.execute(
             """
             DELETE FROM knowledge_cards
@@ -470,7 +603,15 @@ def clear_cards() -> None:
     ensure_db()
 
     with connect() as conn:
+        conn.execute("DELETE FROM learning_document_sources")
+        conn.execute("DELETE FROM learning_document_versions")
+        conn.execute("DELETE FROM learning_document_cards")
+        conn.execute("DELETE FROM learning_documents")
         conn.execute("DELETE FROM card_relations")
         conn.execute("DELETE FROM card_embeddings")
         conn.execute("DELETE FROM knowledge_card_notes")
+        conn.execute("DELETE FROM review_events")
+        conn.execute("DELETE FROM review_progress")
+        conn.execute("DELETE FROM review_items")
+        conn.execute("DELETE FROM topic_card_memberships")
         conn.execute("DELETE FROM knowledge_cards")

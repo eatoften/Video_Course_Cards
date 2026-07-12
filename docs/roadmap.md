@@ -1,877 +1,423 @@
 # Video Course Cards Roadmap
 
-Last updated: 2026-07-11
+Last updated: 2026-07-12
 
 ## Product Direction
 
-Video Course Cards is a local-first AI learning workspace. The product goal is
-to turn long course videos into grounded knowledge cards, then organize those
-cards into a navigable personal knowledge system.
+Video Course Cards is a local-first learning workspace that turns long course
+videos into grounded, reviewable knowledge. SQLite is the source of truth;
+Markdown is a portable export snapshot.
 
-Current shape:
-
-```text
-course videos
--> transcripts
--> semantic transcript chunks
--> grounded knowledge cards
--> card embeddings
--> card relations
--> graph / tree / RAG
-```
-
-Core design decisions:
-
-- SQLite is the source of truth.
-- Markdown is an export snapshot, not the primary database.
-- Cards are structured records, not plain text blobs.
-- Each important generated claim should be grounded in transcript evidence.
-- Similarity edges should be persisted in `card_relations`, not only computed in
-  the frontend.
-- The UI should evolve from a single crowded workspace into an Obsidian-like
-  multi-view learning environment.
-
-## Current State
-
-The project already has a working local demo:
-
-- FastAPI backend.
-- React + Vite frontend.
-- Tauri Windows desktop shell.
-- Packaged FastAPI sidecar for the desktop app.
-- GitHub Release installer pipeline.
-- SQLite job system.
-- Local video upload.
-- ffprobe validation.
-- FFmpeg audio extraction.
-- faster-whisper transcription.
-- Transcript timeline UI.
-- Transcript semantic chunking.
-- Local Ollama/Qwen card generation.
-- Claim-level evidence grounding.
-- Knowledge card persistence.
-- Card editing, deletion, tags, review state, and user notes.
-- Card embeddings.
-- Basic card-based dense retrieval.
-- Persistent card relations generated from cosine similarity.
-- Obsidian-like Workspace and Graph views.
-- Interactive course graph with relation review and manual editing.
-- Local Qwen-assisted relation typing.
-- Markdown folder export.
-
-Current product capability:
+The product separates complementary structures that serve different learning needs:
 
 ```text
-local course video
--> transcript
--> semantic chunks
--> grounded cards
--> searchable saved cards
--> Markdown export
+KnowledgeCard   = one grounded unit of understanding
+Topic           = the course's hierarchical curriculum structure
+CardRelation    = a lateral semantic or logical connection between cards
+ReviewItem      = one independently scheduled recall task
+SourceUnit      = a locatable excerpt from video, slide, page, or document
+LearningDocument = a versioned deep explanation grown around card anchors
 ```
 
-## Completed Milestones
-
-### Milestone 0: Project Foundation
-
-- uv + Python 3.11 backend.
-- FastAPI.
-- React + TypeScript + Vite.
-- pytest.
-- Monorepo structure.
-
-### Milestone 1: Video Upload
-
-- `POST /videos`.
-- Local upload storage.
-- Extension allowlist.
-- MIME validation.
-- CORS.
-
-### Milestone 2: Media Validation
-
-- ffprobe integration.
-- Stream metadata parsing.
-- Fake-video detection.
-- Mocked ffprobe tests.
-
-### Milestone 3: Audio and ASR
-
-- FFmpeg audio extraction.
-- 16 kHz mono PCM WAV conversion.
-- faster-whisper integration.
-- Timestamped transcript segments.
-- Transcript JSON save/load.
-
-### Milestone 4: Processing Pipeline
-
-Pipeline:
+This separation fixes the main weakness of a similarity-only graph. A force
+graph is useful for discovery, but it does not tell a learner what to study
+first or what to review today. The product therefore has three complementary
+learning views:
 
 ```text
-probe -> metadata -> audio -> transcribe -> save
+Course Map  -> understand the curriculum and choose a topic
+Study       -> expand a concept with local documents and grounded citations
+Review      -> act on due recall tasks
+Explore     -> discover lateral card relationships
 ```
 
-- `VideoPipeline.process()`.
-- Structured processing result.
-- Mocked external tools in tests.
-
-### Milestone 5: SQLite Job System
-
-Job state flow:
+## Current End-to-End Flow
 
 ```text
-uploaded
--> probing
--> extracting_audio
--> transcribing
--> completed
+local video
+-> ffprobe validation
+-> FFmpeg audio extraction
+-> faster-whisper transcript with timestamps
+-> sentence-transformer semantic chunks
+-> local Qwen grounded card generation
+-> SQLite cards + claims + evidence + review items
+-> local PPTX / PDF / DOCX / text source units
+-> versioned concept study documents
+-> card embeddings and persistent relations
+-> Course Map / Study / Review / Explore / RAG baseline
+-> Markdown or Obsidian export
 ```
 
-Any failed stage becomes:
+The application runs as a React + FastAPI project and as a Tauri Windows
+desktop application with a packaged backend sidecar.
+
+## Architecture Rules
+
+- `main.py` owns HTTP concerns only.
+- Service modules own business workflows and validation.
+- Store modules own SQLite CRUD and transactions.
+- Pipeline modules own media and model computation.
+- Claims must be grounded in timestamped transcript evidence.
+- A card's learning content is independent from its review schedule.
+- Suggested machine structure must be distinguishable from accepted user
+  structure.
+- User data must survive schema upgrades.
+
+## Completed Foundation: Milestones 0-15
+
+- Python 3.11, uv, FastAPI, React, TypeScript, Vite, pytest monorepo.
+- Local upload, MIME/extension checks, ffprobe validation and CORS.
+- FFmpeg 16 kHz mono PCM extraction and faster-whisper transcription.
+- SQLite job lifecycle with retry, timestamps and failure handling.
+- Transcript API, video player, timeline selection and polling UI.
+- Local Ollama/Qwen integration and selectable models.
+- Claim-level grounding with verified quotes and timestamps.
+- Card persistence, editing, deletion, tags and decoupled user notes.
+- Course/video/card workspace and automatic chunk-based card generation.
+- Obsidian-friendly Markdown folder and zip export.
+
+## Completed Knowledge Graph Baseline: Milestones 16-22
+
+- Card embeddings stored in `card_embeddings`.
+- Cosine similarity and top-k relation generation.
+- Persistent `card_relations` with suggested/accepted/rejected states.
+- Related-card and course-graph APIs.
+- Obsidian-like left navigation and multi-view frontend.
+- Ranked related-card view and force-directed Explore graph.
+- Manual relation editing and local-Qwen relation typing.
+
+The graph remains a discovery tool. It is not used as the curriculum hierarchy
+or as the review scheduler.
+
+## Milestone 23: Knowledge Card V2 (Completed)
+
+### Problem
+
+The old card mixed knowledge content, a single question/answer pair and a vague
+`review_state`. That made it difficult to support multiple recall prompts or a
+real spaced-repetition scheduler.
+
+### Card structure
 
 ```text
-failed
+knowledge_cards
+  id
+  job_id
+  card_kind
+  title
+  summary
+  key_points[]
+  claims[]
+    claim.id
+    claim.text
+    evidence[]
+      evidence.id
+      quote
+      segment_start_seconds
+      segment_end_seconds
+  unsupported_terms[]
+  tags[]
+  content_status
+  source_start_seconds
+  source_end_seconds
+  provider / model
+  created_at / updated_at
 ```
 
-Implemented:
-
-- SQLite-backed jobs.
-- Created/updated/started/completed timestamps.
-- Original filename, stored filename, file size.
-- Retry endpoint.
-- Job list endpoint.
-- Service/store split.
-
-### Milestone 6: Transcript API
-
-- `GET /jobs/{job_id}/transcript`.
-- Structured transcript response with language, duration, and timestamped
-  segments.
-
-### Milestone 7: Real Frontend Integration
-
-- Upload video from UI.
-- Start processing.
-- Poll job state.
-- Load transcript after completion.
-- Display transcript beside workspace.
-
-### Milestone 8: Transcript Timeline
-
-- Video player.
-- Transcript list.
-- Segment selection.
-- Current segment highlighting.
-- Fixed transcript overflow panel.
-
-### Milestone 9: Knowledge Context Layer
-
-- Selected transcript spans become card-generation context.
-- Context windows preserve source timestamps.
-
-### Milestone 10: Local LLM Integration
-
-- Ollama/OpenAI-compatible local model client.
-- Qwen model selection.
-- LLM status endpoint.
-- LLM model list endpoint.
-- `/cards/draft`.
-
-### Milestone 11: Knowledge Card Persistence
-
-- `knowledge_cards` table.
-- Save/edit/delete cards.
-- Query cards by job and course.
-- Delete uploaded videos and associated cards.
-
-### Milestone 12: Claim-Level Grounding
-
-- Cards must include claims.
-- Claims must include transcript evidence.
-- Evidence quotes are verified against source transcript.
-- Verified evidence receives deterministic timestamps.
-- Unsupported claims are dropped.
-
-### Milestone 13: Card Generation Reliability
-
-- Generation progress.
-- Metadata.
-- Timeout handling.
-- Cancel generation.
-- Better error responses.
-- Tests for slow/failing local model paths.
-
-### Milestone 14: Course/Card Workspace
-
-- Course list.
-- Video list.
-- Course-level card rail.
-- Card detail view.
-- Tags.
-- Review state.
-- User notes decoupled from cards.
-- Delete all cards for a job or course.
-
-### Milestone 15: Export
-
-- Export one job's cards as Markdown.
-- Export all cards as Markdown.
-- Obsidian-friendly folder layout.
-- Source video and timestamps.
-- Claims and evidence.
-- Active recall question/answer.
-- Local folder export.
-- Zip export retained as a portable packaging option.
-
-## Next Phase: Persistent Card Relations And Graph View
-
-The next phase moves the project from a list of cards to a persistent knowledge
-structure.
-
-The immediate target is:
+`card_kind` describes the shape of knowledge:
 
 ```text
-card_embeddings
--> cosine similarity
--> card_relations table
--> related cards API
--> Graph view in the frontend
+concept | definition | process | comparison | example | formula
 ```
 
-This is intentionally not yet full GraphRAG. First we need a durable relation
-layer that can be inspected, updated, filtered, and later improved by user
-feedback or LLM relation extraction.
-
-## Milestone 16: Card Relations Table (Completed)
-
-Problem:
-
-Cards currently have embeddings, but the relationships between cards are not
-stored. If related cards are computed only in memory, the system cannot inspect,
-edit, evaluate, or build a graph over those relationships.
-
-Goal:
-
-Add a persistent `card_relations` table as the first real knowledge-graph layer.
-
-Implemented schema:
-
-```sql
-CREATE TABLE IF NOT EXISTS card_relations (
-    id TEXT PRIMARY KEY,
-    course_id TEXT NOT NULL,
-    source_card_id TEXT NOT NULL,
-    target_card_id TEXT NOT NULL,
-    relation_type TEXT NOT NULL,
-    score REAL NOT NULL,
-    method TEXT NOT NULL,
-    model TEXT,
-    explanation TEXT,
-    status TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-```
-
-Initial relation type:
+`content_status` describes editorial quality, not memory state:
 
 ```text
-semantic_similarity
+draft | reviewed | needs_fix
 ```
 
-Future relation types:
+Claims and evidence now have stable IDs so review prompts and future citations
+can point to specific grounded facts.
+
+### Review item structure
 
 ```text
-prerequisite
-related
-example_of
-contrast_with
-part_of
-```
-
-Initial method:
-
-```text
-cosine_similarity
-```
-
-Status values:
-
-```text
-suggested
-accepted
-rejected
-hidden
-```
-
-Indexes:
-
-```sql
-CREATE INDEX IF NOT EXISTS idx_card_relations_course_id
-ON card_relations (course_id);
-
-CREATE INDEX IF NOT EXISTS idx_card_relations_source_card_id
-ON card_relations (source_card_id);
-
-CREATE INDEX IF NOT EXISTS idx_card_relations_target_card_id
-ON card_relations (target_card_id);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_card_relations_unique_pair_type
-ON card_relations (
-    source_card_id,
-    target_card_id,
-    relation_type,
-    method
-);
-```
-
-Design rules:
-
-- Store directional rows even when similarity is symmetric.
-- Normalize pair ordering only if we later decide graph edges should be
-  undirected at storage level.
-- Keep `score` numeric and model-agnostic.
-- Keep `method` so future relations can come from LLMs or manual editing.
-- Keep `status` so the user can accept/reject relation suggestions later.
-- Do not delete user-reviewed relations during recomputation.
-
-Planned backend files:
-
-```text
-backend/app/card_relation.py
-backend/app/card_relation_store.py
-backend/app/card_relation_service.py
-backend/app/card_similarity.py
-```
-
-Responsibilities:
-
-```text
-card_similarity.py
-  cosine similarity and top-k scoring
-
-card_relation_store.py
-  SQLite CRUD for card_relations
-
-card_relation_service.py
-  recompute relations, list related cards, graph payload assembly
-
-main.py
-  HTTP routes only
-```
-
-Knowledge to learn:
-
-- Graph edge table design.
-- Many-to-many relationships in SQLite.
-- Idempotent recomputation.
-- Separating algorithm code from persistence code.
-
-## Milestone 17: Relation Generation From Card Embeddings (Completed)
-
-Problem:
-
-The system needs to compute related-card edges from existing card embeddings and
-write them into `card_relations`.
-
-Planned algorithm:
-
-```text
-load cards for course
-load card embeddings for course
-for every pair of cards:
-    cosine_similarity(a, b)
-    if score >= threshold:
-        keep candidate
-for each source card:
-    keep top_k candidates
-upsert into card_relations
-```
-
-Initial parameters:
-
-```text
-threshold = 0.72
-top_k = 5
-relation_type = semantic_similarity
-method = cosine_similarity
-status = suggested
-```
-
-Important constraints:
-
-- Only compare cards within the same course by default.
-- Skip cards without embeddings.
-- Skip self-relations.
-- Skip duplicate source-target rows.
-- Upsert suggested relations when scores change.
-- Preserve `accepted` and `rejected` relations if the user has reviewed them.
-- Delete or mark stale auto-suggested relations when they fall below threshold.
-
-Planned APIs:
-
-```text
-POST /courses/{course_id}/card-relations/recompute
-GET  /courses/{course_id}/card-relations
-GET  /cards/{card_id}/related
-PATCH /card-relations/{relation_id}
-DELETE /card-relations/{relation_id}
-```
-
-Example `GET /cards/{card_id}/related` response:
-
-```json
-{
-  "card_id": "...",
-  "related": [
-    {
-      "relation_id": "...",
-      "card_id": "...",
-      "title": "Gradient Descent",
-      "summary": "...",
-      "tags": ["optimization"],
-      "review_state": "draft",
-      "relation_type": "semantic_similarity",
-      "score": 0.84,
-      "method": "cosine_similarity",
-      "status": "suggested",
-      "source_start_seconds": 312.4,
-      "source_end_seconds": 337.2
-    }
-  ]
-}
-```
-
-Example `GET /courses/{course_id}/card-relations` response:
-
-```json
-{
-  "course_id": "uncategorized",
-  "nodes": [
-    {
-      "id": "...",
-      "title": "Backpropagation",
-      "tags": ["deep learning"],
-      "review_state": "draft"
-    }
-  ],
-  "edges": [
-    {
-      "id": "...",
-      "source": "...",
-      "target": "...",
-      "relation_type": "semantic_similarity",
-      "score": 0.82,
-      "status": "suggested"
-    }
-  ]
-}
-```
-
-Testing plan:
-
-- cosine similarity unit tests.
-- top-k selection tests.
-- no self-edge tests.
-- threshold tests.
-- upsert tests.
-- reviewed relation preservation tests.
-- API tests for recompute/list/related/update/delete.
-
-Knowledge to learn:
-
-- Cosine similarity over stored BLOB vectors.
-- O(n^2) pairwise comparison tradeoffs.
-- Threshold tuning.
-- Graph edge persistence.
-- Relation recomputation policies.
-
-## Milestone 18: Left Sidebar And Multi-View Frontend (Completed)
-
-Problem:
-
-The current UI grew from a single workspace. The right rail now carries too much
-responsibility: card list, selected card, ask panel, filters, and navigation.
-Before adding a graph, the app needs a stable left-side navigation model.
-
-Goal:
-
-Introduce an Obsidian-like left navigation bar while preserving the current
-workspace.
-
-Initial views:
-
-```text
-Workspace
-Graph
-```
-
-Future views:
-
-```text
-Cards
-Search / RAG
-Settings
-Runtime
-Exports
-```
-
-URL state:
-
-```text
-?view=workspace&course=uncategorized&card=...
-?view=graph&course=uncategorized&card=...
-```
-
-Implementation plan:
-
-- Add `AppView` state:
-
-```ts
-type AppView = 'workspace' | 'graph'
-```
-
-- Parse and write `view` in URL query state.
-- Add a persistent left navigation sidebar.
-- Move current UI into `WorkspaceView`.
-- Add placeholder `GraphView`.
-- Keep existing card rail functional during the transition.
-- Do not rewrite the entire frontend in one step.
-
-Design direction:
-
-```text
-left nav:
-  Workspace
-  Graph
-
-main area:
-  selected view
-
-existing right rail:
-  kept for workspace until graph/card views mature
-```
-
-Knowledge to learn:
-
-- React state decomposition.
-- URL query-state synchronization.
-- Multi-view application layout.
-- Incremental frontend refactoring.
-
-## Milestone 19: Graph View Version 1 (Completed)
-
-Problem:
-
-Users need to see which cards are related and move through the course memory by
-concept similarity.
-
-Goal:
-
-Build a first useful graph view using persisted `card_relations`.
-
-Version 1 should be list-first, graph-second:
-
-```text
-selected course
--> selected card
--> related cards ranked by score
--> relation detail
-```
-
-Graph view layout:
-
-```text
-left panel:
-  course card list
-  search/filter
-
-center:
-  selected card summary
-  related cards ranked by score
-
-right panel or lower area:
-  relation metadata
-  score
+review_items
+  id
+  card_id
+  item_type
+  prompt
+  expected_answer
+  source_claim_ids[]
+  source
   status
-  source/target cards
+  created_at / updated_at
 ```
 
-Controls:
-
-- Recompute relations.
-- Similarity threshold.
-- Top-k.
-- Filter by relation status.
-- Filter by tag.
-- Click related card to select it.
-- Jump back to workspace card detail.
-
-First version does not require a force-directed canvas. A ranked relation list is
-easier to debug and more useful for verifying similarity quality.
-
-Knowledge to learn:
-
-- Rendering graph data without a graph canvas.
-- Debugging embedding similarity.
-- React list/detail patterns.
-- Filtering persisted relationships.
-
-## Milestone 20: Graph Visualization Version 2 (Completed)
-
-Problem:
-
-Once relations are reliable, the user should be able to see the course as a
-network of concepts.
-
-Planned work:
-
-- Add a graph visualization library:
-  - `react-force-graph-2d`
-  - or `vis-network`
-  - or D3 force simulation later
-- Render:
-  - node = card
-  - edge = card relation
-  - edge weight = similarity score
-  - node color = tag or review state
-- Interactions:
-  - click node to open card
-  - hover node to show title/summary
-  - threshold slider
-  - relation type filter
-  - hide rejected edges
-  - show accepted edges more strongly
-
-Do not start with a complex graph canvas. The graph should be added after the
-relation list is already correct.
-
-Knowledge to learn:
-
-- Graph visualization.
-- Force layout tradeoffs.
-- Visual encoding for edge weight and relation status.
-- Graph UX for learning tools.
-
-## Milestone 21: Relation Review And Manual Editing (Completed)
-
-Problem:
-
-Embedding similarity can suggest relationships, but users should control which
-relationships become trusted knowledge structure.
-
-Planned work:
-
-- Accept/reject suggested relations.
-- Hide noisy relations.
-- Add manual relation creation.
-- Allow relation type changes:
+One card can own multiple independent prompts:
 
 ```text
-semantic_similarity -> prerequisite
-semantic_similarity -> example_of
-semantic_similarity -> contrast_with
+basic | cloze | explain | compare | apply
 ```
 
-- Add optional user explanation.
-- Preserve user-reviewed relations during recomputation.
-- Add relation history later if needed.
+### Migration
 
-Knowledge to learn:
+- Existing card rows are migrated in-place to Card V2.
+- Existing question/answer pairs become `review_items`.
+- Existing cards receive stable claim/evidence IDs.
+- The migration preserves user cards rather than resetting the database.
 
-- Human-in-the-loop data curation.
-- Trust states in graph data.
-- Separating suggested data from accepted knowledge.
+## Milestone 24: Topic Hierarchy (Completed)
 
-## Milestone 22: LLM-Assisted Relation Typing (Completed)
+### Problem
 
-Problem:
+Card similarity does not express a readable course outline. Topics provide the
+hierarchical structure needed for navigation and review planning.
 
-Cosine similarity only says "these cards are close." It does not say why.
-
-Planned work:
-
-- Use high-similarity pairs as candidates.
-- Ask local Qwen to classify the relationship:
+### Tables
 
 ```text
-prerequisite
-related
-example_of
-contrast_with
-part_of
-unclear
+topics
+  id, course_id, parent_topic_id
+  title, summary, position, depth
+  method, status, is_system
+  created_at, updated_at
+
+topic_card_memberships
+  id, topic_id, card_id
+  role, position, method, confidence, status
+  created_at, updated_at
+
+topic_relations
+  id, course_id, source_topic_id, target_topic_id
+  relation_type, explanation, method, status
+  created_at, updated_at
 ```
 
-- Ask for a short explanation.
-- Store result in `card_relations`:
-  - `relation_type`
-  - `method = local_llm`
-  - `model`
-  - `explanation`
-  - `status = suggested`
-- Show explanation in Graph view.
-- Let user accept/reject/change relation type.
+Every course has a system `Unsorted` topic. Cards without an accepted primary
+topic are placed there without changing the card record itself.
 
-Knowledge to learn:
+Manual operations support:
 
-- Relation extraction.
-- LLM classification prompts.
-- Model-generated graph edges.
-- Human review of model-suggested structure.
+- create, rename, nest, move and delete a topic;
+- move a card to a primary topic;
+- add or remove topic-level prerequisite/related relations;
+- preserve cards when topics or courses are deleted.
 
-## Milestone 23: Card-Based RAG Assistant
+## Milestone 25: Course Map (Completed)
 
-Problem:
+The left navigation now provides a dedicated Course Map view.
 
-Users should be able to ask questions about a course and receive answers
-grounded in cards and timestamps.
+Course Map supports:
 
-Planned work:
+- course selection;
+- expandable topic tree;
+- nested topic creation and editing;
+- card counts and card previews;
+- moving cards between topics;
+- topic relation creation;
+- suggested-topic preview and acceptance.
 
-- Use query embedding to retrieve relevant cards.
-- Expand context with accepted/suggested card relations.
-- Build a grounded context prompt.
-- Use local Qwen to answer.
-- Require citations:
-  - card title
-  - evidence quote
-  - source video timestamp
-- Say "not enough evidence" when retrieval does not support an answer.
+The Course Map is intentionally tree-first. It answers:
 
-Flow:
+```text
+What is this course about?
+How is it organized?
+Which cards belong to this concept?
+```
+
+## Milestone 26: FSRS Review Engine (Completed)
+
+### Scheduling tables
+
+```text
+review_progress
+  review_item_id
+  fsrs_card_id, fsrs_state, step
+  due_at, stability, fsrs_difficulty
+  last_reviewed_at
+  review_count, lapse_count
+  created_at, updated_at
+
+review_events
+  id, review_item_id, rating, reviewed_at
+  response_time_ms
+  previous_phase, next_phase
+  due_before, due_after, scheduled_days
+```
+
+The scheduler uses the official `fsrs` Python package. Each `review_item` is an
+independent scheduling unit, so one weak recall prompt does not incorrectly
+mark the whole card as mastered.
+
+Ratings:
+
+```text
+Again | Hard | Good | Easy
+```
+
+Phases:
+
+```text
+new | learning | review | relearning
+```
+
+APIs:
+
+```text
+GET  /courses/{course_id}/review/queue
+POST /review-items/{review_item_id}/rate
+```
+
+The queue can be filtered by course and topic and returns grounded claims and
+evidence for answer verification.
+
+## Milestone 27: Review Workspace (Completed)
+
+The Review view supports a complete active-recall loop:
+
+```text
+choose course/topic
+-> read prompt
+-> optionally write a self-answer
+-> reveal expected answer and source evidence
+-> rate recall quality
+-> FSRS schedules the next review
+```
+
+The UI also shows due/new/learning/review counts, due counts by topic, source
+timestamps and a link back to the full card.
+
+## Milestone 28: Embedding-Based Topic Suggestions (Completed)
+
+### Goal
+
+Help organize a large `Unsorted` collection while keeping the user in control.
+
+### Algorithm
+
+```text
+accepted Unsorted cards
+-> load compatible card embeddings
+-> combine semantic vector + tag/source features
+-> agglomerative clustering with cosine distance
+-> deterministic fallback topic names
+-> optional one-call local Qwen naming
+-> persist suggested topics and memberships
+-> user previews and accepts selected suggestions
+```
+
+Current feature weights:
+
+```text
+semantic embedding: 0.85
+tags:               0.25
+source job/time:    0.15
+```
+
+Only embeddings with the same model and dimension are clustered together.
+Suggestions are stored with `status = suggested`; they do not overwrite manual
+topics until the user accepts them.
+
+APIs:
+
+```text
+POST /courses/{course_id}/topics/suggest
+POST /topics/{topic_id}/accept
+```
+
+## Milestone 29: Local Source Assets And Units (Completed)
+
+- Added local `source_assets` and `source_units` tables.
+- Supports PPTX, PDF, DOCX, TXT, and Markdown extraction.
+- Preserves slide, page, paragraph, and section locators.
+- Stores SHA-256, extraction status, metadata, and local paths.
+- Reserves `video_frame` units with timestamp/frame metadata for future vision.
+- Keeps imported material local under `VCC_SOURCE_DIR`.
+
+## Milestone 30: Concept Study Documents (Completed)
+
+- Added versioned `learning_documents` independent from quick user notes.
+- A document has one primary anchor card and multiple supporting card roles.
+- Local Qwen generation combines card claims and selected source units.
+- Course claims use `[C*]`; supplementary files use `[S*]` citations.
+- Invalid citation labels are removed and source metadata is persisted.
+- Manual edits, LLM generations, and restores create immutable versions.
+- Added a lazy-loaded Study workspace with Markdown edit/preview, local upload,
+  source selection, supporting-card selection, references, and version restore.
+
+## Milestone 31: Learning Coverage And Topic Correction (Completed)
+
+- Course Map shows card, Study document, due-review, source, and Unsorted counts.
+- Each Topic exposes review and Study document coverage.
+- Topic suggestions return mean embedding coherence, singleton count, largest
+  cluster size, and all cluster sizes.
+- Users can merge accepted Topics or split selected cards into a sibling Topic.
+- Every Course Map card can open its Study workspace directly.
+
+## Milestone 32: Card-Based Grounded RAG (Deferred)
+
+The existing dense-retrieval baseline should become a citation-first assistant:
 
 ```text
 question
 -> query embedding
--> retrieve top cards
--> expand through card_relations
--> build grounded prompt
--> local LLM answer with citations
+-> retrieve accepted cards
+-> optionally expand through trusted card relations/topics
+-> build bounded grounded context
+-> local Qwen answer
+-> cite card, evidence quote and video timestamp
 ```
 
-Knowledge to learn:
+The assistant must say `not enough evidence` when retrieval does not support an
+answer. Course/topic filters and retrieval diagnostics should be visible.
 
-- RAG.
-- Graph expansion.
-- Citation grounding.
-- Context construction.
-- Retrieval evaluation.
-
-## Milestone 24: Evaluation Layer
-
-Problem:
-
-The project should be evaluated, not only demonstrated.
+## Milestone 33: Evaluation Layer (Deferred)
 
 Planned measurements:
 
-- Unsupported claim rate.
-- Grounding pass rate.
-- Generation latency.
-- Duplicate card rate.
-- Retrieval hit rate.
-- Relation precision.
-- Accepted/rejected relation rate.
-- Graph noise rate.
-- User edit distance.
+- grounding pass and unsupported-claim rates;
+- card generation latency and failure rate;
+- duplicate-card rate;
+- retrieval hit rate and citation correctness;
+- relation precision and graph noise;
+- topic coherence and orphan-card rate;
+- review retention and lapse rate;
+- user edit distance.
 
-Planned tables:
+Evaluation should use a small versioned benchmark course plus structured user
+feedback rather than relying on visual demos alone.
 
-```text
-evaluation_runs
-card_feedback
-relation_feedback
-generation_feedback
-```
+## Milestone 34: Feedback Dataset And Agentic Learning Loop (Deferred)
 
-Resume angle:
+Planned records:
 
-> I built a local-first AI learning system and designed evaluation metrics for
-> grounded card generation, retrieval quality, and graph relation quality.
+- generated card to edited card diffs;
+- save/delete decisions;
+- accepted/rejected relation and topic suggestions;
+- review outcomes and response time;
+- evidence clicks and citation corrections;
+- RAG answer feedback.
 
-Knowledge to learn:
+These records can later support prompt optimization, reranking, preference
+learning, reward modeling and an agentic retrieval policy. The feedback schema
+should be built only after the baseline workflows and metrics are stable.
 
-- LLM evaluation.
-- Product metrics.
-- Regression testing for AI features.
-- Failure mode analysis.
-
-## Milestone 25: Feedback Dataset And Agentic Learning Loop
-
-Problem:
-
-The system should capture how users improve generated knowledge so future
-versions can learn from it.
-
-Planned work:
-
-- Store generated card -> edited card diffs.
-- Store save/delete decisions.
-- Store accepted/rejected relation suggestions.
-- Store evidence clicks.
-- Store RAG answer feedback.
-- Build preference-style records.
-- Prepare data for:
-  - prompt optimization
-  - reranker training
-  - reward modeling
-  - agentic policy improvement
-
-Knowledge to learn:
-
-- Feedback data modeling.
-- Preference data.
-- Human correction logs.
-- Agentic learning loop design.
-
-## Immediate Implementation Order
-
-Completed in this phase:
+## Final Product Shape
 
 ```text
-[x] 16.1 Add card_relations schema
-[x] 16.2 Add card relation models/store/service
-[x] 16.3 Add cosine similarity recompute flow
-[x] 16.4 Add related cards and course graph APIs
-[x] 16.5 Add tests
-[x] 16.6 Add left sidebar view navigation
-[x] 16.7 Add Graph view list-first UI
-[x] 20 Add interactive force-directed graph visualization
-[x] 21 Add relation review and manual editing
-[x] 22 Add local Qwen-assisted relation typing
+upload a course locally
+-> obtain timestamped transcripts
+-> generate grounded knowledge cards
+-> organize them into an editable course map
+-> expand anchor cards into source-backed Study documents
+-> review with evidence-backed FSRS prompts
+-> explore semantic and logical relationships
+-> ask citation-grounded questions
+-> export portable Markdown
+-> learn from human corrections and review outcomes
 ```
 
-Deferred by product decision:
-
-```text
-23 Card-based grounded RAG answers
-24 Evaluation layer
-25 Feedback dataset and agentic learning loop
-```
-
-Why this order:
-
-- The database relation layer must exist before the graph UI.
-- Persisted relations let us debug and evaluate similarity.
-- A list-first graph view is easier to verify than a canvas graph.
-- The left sidebar creates room for future views without making the workspace
-  even more crowded.
-
-## Long-Term Final Shape
-
-The final system should feel like:
-
-```text
-upload a course
--> transcribe videos locally
--> create semantic transcript chunks
--> generate grounded cards
--> embed cards
--> persist card relations
--> review relationship suggestions
--> explore graph/tree views
--> ask grounded questions over course memory
--> export Markdown snapshots
--> collect feedback for future learning loops
-```
+The graph helps the learner discover, the map explains course structure, Study
+documents support deep understanding, and the review queue helps the learner
+remember.

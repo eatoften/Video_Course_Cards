@@ -312,7 +312,7 @@ def get_related_cards(card_id: str) -> CardRelatedCardsResponse:
                 title=target_card.title,
                 summary=target_card.summary,
                 tags=target_card.tags,
-                review_state=target_card.review_state,
+                content_status=target_card.content_status,
                 relation_type=relation.relation_type,
                 score=relation.score,
                 method=relation.method,
@@ -407,7 +407,7 @@ def _card_to_graph_node(card: KnowledgeCard) -> CardRelationGraphNode:
         title=card.title,
         summary=card.summary,
         tags=card.tags,
-        review_state=card.review_state,
+        content_status=card.content_status,
         source_start_seconds=card.source_start_seconds,
         source_end_seconds=card.source_end_seconds,
     )

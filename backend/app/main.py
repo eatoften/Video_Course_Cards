@@ -16,9 +16,15 @@ from . import export_service
 from . import job_service
 from . import knowledge_card_service
 from . import knowledge_card_note_service
+from . import learning_document_service
 from . import rag_service
+from . import review_item_service
+from . import review_service
 from . import runtime_service
+from . import source_asset_service
 from . import transcript_chunk_service
+from . import topic_service
+from . import topic_suggestion_service
 from .course import Course, CourseCreate, CourseUpdate
 from .card_generation_run import AutoCardGenerationRequest, CardGenerationRun
 from .card_embedding import CardEmbeddingBatchResult, CardEmbeddingStatus
@@ -39,28 +45,58 @@ from .job_service import TranscriptContext
 from .knowledge_card import (
     KnowledgeCard,
     KnowledgeCardCreate,
+    KnowledgeCardDetail,
     KnowledgeCardIndexItem,
     KnowledgeCardUpdate,
 )
+from .review_item import ReviewItem, ReviewItemCreate, ReviewItemUpdate
+from .review import ReviewQueue, ReviewRatingRequest, ReviewRatingResult
 from .knowledge_card_note import (
     KnowledgeCardNote,
     KnowledgeCardNoteCreate,
     KnowledgeCardNoteUpdate,
 )
+from .learning_document import (
+    LearningDocument,
+    LearningDocumentCardLinkCreate,
+    LearningDocumentCreate,
+    LearningDocumentDetail,
+    LearningDocumentGenerateRequest,
+    LearningDocumentGenerationResult,
+    LearningDocumentRestoreRequest,
+    LearningDocumentUpdate,
+)
 from .llm_client import LLMModelList, LLMStatus, LocalLLMClient
 from .rag import RagRetrieveRequest, RagRetrieveResponse
 from .runtime_status import RuntimeStatus
+from .source_asset import SourceAssetDetail, SourceAssetImportResult, SourceUnit
 from .settings import get_app_path_settings
 from .transcription import FasterWhisperTranscriber, TranscriptionResult
 from .transcript_chunk import TranscriptChunk, TranscriptChunkGenerationRequest
+from .topic import (
+    CourseMap,
+    SetPrimaryTopicRequest,
+    Topic,
+    TopicCardMembership,
+    TopicCreate,
+    TopicRelation,
+    TopicRelationCreate,
+    TopicMergeRequest,
+    TopicSplitRequest,
+    TopicSuggestionRequest,
+    TopicSuggestionResult,
+    TopicUpdate,
+)
 from .video_pipeline import VideoPipeline
 
 
 APP_PATHS = get_app_path_settings()
 DATA_DIR = APP_PATHS.data_dir
 UPLOAD_DIR = APP_PATHS.upload_dir
+SOURCE_DIR = APP_PATHS.source_dir
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+SOURCE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class VideoUploadResponse(BaseModel):
@@ -210,6 +246,104 @@ def raise_knowledge_card_note_http_error(
     ) from exc
 
 
+def raise_source_asset_http_error(
+    exc: source_asset_service.SourceAssetServiceError,
+) -> None:
+    if isinstance(exc, source_asset_service.SourceAssetNotFoundError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    if isinstance(exc, source_asset_service.InvalidSourceAssetError):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=str(exc),
+        ) from exc
+    if isinstance(exc, source_asset_service.SourceAssetExtractionError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unexpected source asset service error.",
+    ) from exc
+
+
+def raise_learning_document_http_error(
+    exc: learning_document_service.LearningDocumentServiceError,
+) -> None:
+    if isinstance(
+        exc,
+        (
+            learning_document_service.LearningDocumentNotFoundError,
+            learning_document_service.LearningDocumentCardNotFoundError,
+        ),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    if isinstance(exc, learning_document_service.InvalidLearningDocumentError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    if isinstance(exc, learning_document_service.LearningDocumentGenerationError):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unexpected learning document service error.",
+    ) from exc
+
+
+def raise_review_item_http_error(
+    exc: review_item_service.ReviewItemServiceError,
+) -> None:
+    if isinstance(
+        exc,
+        (
+            review_item_service.ReviewItemNotFoundError,
+            review_item_service.ReviewItemCardNotFoundError,
+        ),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(exc, review_item_service.InvalidReviewItemError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unexpected review item service error.",
+    ) from exc
+
+
+def raise_review_http_error(exc: review_service.ReviewServiceError) -> None:
+    if isinstance(exc, review_service.ReviewItemNotFoundError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    if isinstance(exc, review_service.InvalidReviewRequestError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unexpected review service error.",
+    ) from exc
+
+
 def raise_course_http_error(exc: course_service.CourseServiceError) -> None:
     if isinstance(exc, course_service.CourseNotFoundError):
         raise HTTPException(
@@ -232,6 +366,35 @@ def raise_course_http_error(exc: course_service.CourseServiceError) -> None:
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Unexpected course service error.",
+    ) from exc
+
+
+def raise_topic_http_error(exc: topic_service.TopicServiceError) -> None:
+    if isinstance(
+        exc,
+        (topic_service.TopicNotFoundError, topic_service.TopicCardNotFoundError),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    if isinstance(exc, topic_service.InvalidTopicError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unexpected topic service error.",
+    ) from exc
+
+
+def raise_topic_suggestion_http_error(
+    exc: topic_suggestion_service.TopicSuggestionError,
+) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=str(exc),
     ) from exc
 
 
@@ -416,7 +579,7 @@ app.add_middleware(
         "tauri://localhost",
     ],
     allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1):\d+|https?://tauri\.localhost|tauri://localhost)$",
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -582,6 +745,233 @@ def list_course_cards(course_id: str) -> list[KnowledgeCard]:
         return course_service.list_course_cards(course_id)
     except course_service.CourseServiceError as exc:
         raise_course_http_error(exc)
+
+
+@app.get(
+    "/courses/{course_id}/source-assets",
+    response_model=list[SourceAssetDetail],
+)
+def list_course_source_assets(course_id: str) -> list[SourceAssetDetail]:
+    try:
+        return source_asset_service.list_course_source_assets(course_id)
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+
+
+@app.post(
+    "/courses/{course_id}/source-assets",
+    response_model=SourceAssetImportResult,
+    status_code=status.HTTP_201_CREATED,
+)
+async def import_course_source_asset(
+    course_id: str,
+    file: UploadFile,
+) -> SourceAssetImportResult:
+    try:
+        return source_asset_service.import_course_source_asset(
+            course_id,
+            filename=file.filename,
+            content_type=file.content_type,
+            content=await file.read(),
+        )
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+    except source_asset_service.SourceAssetServiceError as exc:
+        raise_source_asset_http_error(exc)
+
+
+@app.get(
+    "/source-assets/{asset_id}/units",
+    response_model=list[SourceUnit],
+)
+def list_source_asset_units(asset_id: str) -> list[SourceUnit]:
+    try:
+        return source_asset_service.list_source_asset_units(asset_id)
+    except source_asset_service.SourceAssetServiceError as exc:
+        raise_source_asset_http_error(exc)
+
+
+@app.delete(
+    "/source-assets/{asset_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_source_asset(asset_id: str) -> Response:
+    try:
+        source_asset_service.remove_source_asset(asset_id)
+    except source_asset_service.SourceAssetServiceError as exc:
+        raise_source_asset_http_error(exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get(
+    "/courses/{course_id}/learning-documents",
+    response_model=list[LearningDocument],
+)
+def list_course_learning_documents(course_id: str) -> list[LearningDocument]:
+    try:
+        return learning_document_service.list_course_learning_documents(course_id)
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+
+
+@app.get(
+    "/courses/{course_id}/map",
+    response_model=CourseMap,
+)
+def get_course_map(course_id: str) -> CourseMap:
+    try:
+        return topic_service.get_course_map(course_id)
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+    except topic_service.TopicServiceError as exc:
+        raise_topic_http_error(exc)
+
+
+@app.get(
+    "/courses/{course_id}/review/queue",
+    response_model=ReviewQueue,
+)
+def get_course_review_queue(
+    course_id: str,
+    topic_id: str | None = None,
+    limit: int = 50,
+) -> ReviewQueue:
+    try:
+        return review_service.get_course_review_queue(
+            course_id,
+            topic_id=topic_id,
+            limit=limit,
+        )
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+    except (review_service.ReviewServiceError, topic_service.TopicServiceError) as exc:
+        if isinstance(exc, topic_service.TopicServiceError):
+            raise_topic_http_error(exc)
+        raise_review_http_error(exc)
+
+
+@app.post(
+    "/courses/{course_id}/topics",
+    response_model=Topic,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_course_topic(course_id: str, request: TopicCreate) -> Topic:
+    try:
+        return topic_service.create_course_topic(course_id, request)
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+    except topic_service.TopicServiceError as exc:
+        raise_topic_http_error(exc)
+
+
+@app.post(
+    "/courses/{course_id}/topics/suggest",
+    response_model=TopicSuggestionResult,
+)
+def suggest_course_topics(
+    course_id: str,
+    request: TopicSuggestionRequest,
+) -> TopicSuggestionResult:
+    try:
+        return topic_suggestion_service.suggest_course_topics(
+            course_id,
+            request,
+            llm_client=get_llm_client(),
+        )
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+    except topic_suggestion_service.TopicSuggestionError as exc:
+        raise_topic_suggestion_http_error(exc)
+
+
+@app.post("/topics/{topic_id}/accept", response_model=Topic)
+def accept_suggested_topic(topic_id: str) -> Topic:
+    try:
+        return topic_service.accept_suggested_topic(topic_id)
+    except topic_service.TopicServiceError as exc:
+        raise_topic_http_error(exc)
+
+
+@app.post("/topics/{topic_id}/merge", response_model=Topic)
+def merge_course_topics(topic_id: str, request: TopicMergeRequest) -> Topic:
+    try:
+        return topic_service.merge_course_topics(topic_id, request)
+    except topic_service.TopicServiceError as exc:
+        raise_topic_http_error(exc)
+
+
+@app.post(
+    "/topics/{topic_id}/split",
+    response_model=Topic,
+    status_code=status.HTTP_201_CREATED,
+)
+def split_course_topic(topic_id: str, request: TopicSplitRequest) -> Topic:
+    try:
+        return topic_service.split_course_topic(topic_id, request)
+    except topic_service.TopicServiceError as exc:
+        raise_topic_http_error(exc)
+
+
+@app.patch("/topics/{topic_id}", response_model=Topic)
+def update_course_topic(topic_id: str, request: TopicUpdate) -> Topic:
+    try:
+        return topic_service.update_course_topic(topic_id, request)
+    except topic_service.TopicServiceError as exc:
+        raise_topic_http_error(exc)
+
+
+@app.delete("/topics/{topic_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_course_topic(topic_id: str) -> Response:
+    try:
+        topic_service.delete_course_topic(topic_id)
+    except topic_service.TopicServiceError as exc:
+        raise_topic_http_error(exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.put(
+    "/cards/{card_id}/primary-topic",
+    response_model=TopicCardMembership,
+)
+def set_card_primary_topic(
+    card_id: str,
+    request: SetPrimaryTopicRequest,
+) -> TopicCardMembership:
+    try:
+        return topic_service.set_card_primary_topic(card_id, request)
+    except (topic_service.TopicServiceError, course_service.CourseServiceError) as exc:
+        if isinstance(exc, course_service.CourseServiceError):
+            raise_course_http_error(exc)
+        raise_topic_http_error(exc)
+
+
+@app.post(
+    "/courses/{course_id}/topic-relations",
+    response_model=TopicRelation,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_course_topic_relation(
+    course_id: str,
+    request: TopicRelationCreate,
+) -> TopicRelation:
+    try:
+        return topic_service.create_course_topic_relation(course_id, request)
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+    except topic_service.TopicServiceError as exc:
+        raise_topic_http_error(exc)
+
+
+@app.delete(
+    "/topic-relations/{relation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_course_topic_relation(relation_id: str) -> Response:
+    try:
+        topic_service.delete_course_topic_relation(relation_id)
+    except topic_service.TopicServiceError as exc:
+        raise_topic_http_error(exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.post(
@@ -1019,9 +1409,9 @@ def save_job_cards_markdown_folder_export(job_id: str):
 
 @app.get(
     "/jobs/{job_id}/cards",
-    response_model=list[KnowledgeCard],
+    response_model=list[KnowledgeCardDetail],
 )
-def list_job_cards(job_id: str) -> list[KnowledgeCard]:
+def list_job_cards(job_id: str) -> list[KnowledgeCardDetail]:
     try:
         return knowledge_card_service.list_job_cards(job_id)
     except job_service.JobServiceError as exc:
@@ -1030,13 +1420,13 @@ def list_job_cards(job_id: str) -> list[KnowledgeCard]:
 
 @app.post(
     "/jobs/{job_id}/cards",
-    response_model=KnowledgeCard,
+    response_model=KnowledgeCardDetail,
     status_code=status.HTTP_201_CREATED,
 )
 def save_job_card(
     job_id: str,
     request: KnowledgeCardCreate,
-) -> KnowledgeCard:
+) -> KnowledgeCardDetail:
     try:
         return knowledge_card_service.save_job_card(job_id, request)
     except job_service.JobServiceError as exc:
@@ -1095,9 +1485,9 @@ def get_card_related_cards(card_id: str) -> CardRelatedCardsResponse:
 
 @app.get(
     "/cards/{card_id}",
-    response_model=KnowledgeCard,
+    response_model=KnowledgeCardDetail,
 )
-def get_saved_card(card_id: str) -> KnowledgeCard:
+def get_saved_card(card_id: str) -> KnowledgeCardDetail:
     try:
         return knowledge_card_service.get_saved_card(card_id)
     except knowledge_card_service.KnowledgeCardServiceError as exc:
@@ -1124,6 +1514,142 @@ def get_saved_card_embedding_status(card_id: str) -> CardEmbeddingStatus:
         return card_embedding_service.get_card_embedding_status(card_id)
     except card_embedding_service.CardEmbeddingServiceError as exc:
         raise_card_embedding_http_error(exc)
+
+
+@app.get(
+    "/cards/{card_id}/learning-documents",
+    response_model=list[LearningDocument],
+)
+def list_card_learning_documents(card_id: str) -> list[LearningDocument]:
+    try:
+        return learning_document_service.list_card_learning_documents(card_id)
+    except learning_document_service.LearningDocumentServiceError as exc:
+        raise_learning_document_http_error(exc)
+
+
+@app.post(
+    "/cards/{card_id}/learning-documents",
+    response_model=LearningDocumentDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_card_learning_document(
+    card_id: str,
+    request: LearningDocumentCreate,
+) -> LearningDocumentDetail:
+    try:
+        return learning_document_service.create_card_learning_document(
+            card_id,
+            request,
+        )
+    except learning_document_service.LearningDocumentServiceError as exc:
+        raise_learning_document_http_error(exc)
+
+
+@app.get(
+    "/learning-documents/{document_id}",
+    response_model=LearningDocumentDetail,
+)
+def get_learning_document(document_id: str) -> LearningDocumentDetail:
+    try:
+        return learning_document_service.get_saved_learning_document(document_id)
+    except learning_document_service.LearningDocumentServiceError as exc:
+        raise_learning_document_http_error(exc)
+
+
+@app.patch(
+    "/learning-documents/{document_id}",
+    response_model=LearningDocumentDetail,
+)
+def update_learning_document(
+    document_id: str,
+    request: LearningDocumentUpdate,
+) -> LearningDocumentDetail:
+    try:
+        return learning_document_service.update_saved_learning_document(
+            document_id,
+            request,
+        )
+    except learning_document_service.LearningDocumentServiceError as exc:
+        raise_learning_document_http_error(exc)
+
+
+@app.delete(
+    "/learning-documents/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_learning_document(document_id: str) -> Response:
+    try:
+        learning_document_service.delete_saved_learning_document(document_id)
+    except learning_document_service.LearningDocumentServiceError as exc:
+        raise_learning_document_http_error(exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post(
+    "/learning-documents/{document_id}/cards",
+    response_model=LearningDocumentDetail,
+)
+def add_learning_document_card(
+    document_id: str,
+    request: LearningDocumentCardLinkCreate,
+) -> LearningDocumentDetail:
+    try:
+        return learning_document_service.add_learning_document_card(
+            document_id,
+            request,
+        )
+    except learning_document_service.LearningDocumentServiceError as exc:
+        raise_learning_document_http_error(exc)
+
+
+@app.delete(
+    "/learning-documents/{document_id}/cards/{card_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_learning_document_card(document_id: str, card_id: str) -> Response:
+    try:
+        learning_document_service.remove_learning_document_card(
+            document_id,
+            card_id,
+        )
+    except learning_document_service.LearningDocumentServiceError as exc:
+        raise_learning_document_http_error(exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post(
+    "/learning-documents/{document_id}/generate",
+    response_model=LearningDocumentGenerationResult,
+)
+def generate_learning_document(
+    document_id: str,
+    request: LearningDocumentGenerateRequest,
+) -> LearningDocumentGenerationResult:
+    try:
+        return learning_document_service.generate_learning_document(
+            document_id,
+            request,
+            llm_client=get_llm_client(),
+        )
+    except learning_document_service.LearningDocumentServiceError as exc:
+        raise_learning_document_http_error(exc)
+
+
+@app.post(
+    "/learning-documents/{document_id}/restore",
+    response_model=LearningDocumentDetail,
+)
+def restore_learning_document(
+    document_id: str,
+    request: LearningDocumentRestoreRequest,
+) -> LearningDocumentDetail:
+    try:
+        return learning_document_service.restore_learning_document_version(
+            document_id,
+            request,
+        )
+    except learning_document_service.LearningDocumentServiceError as exc:
+        raise_learning_document_http_error(exc)
 
 
 @app.get(
@@ -1229,16 +1755,82 @@ def delete_card_relation(relation_id: str) -> Response:
 
 @app.patch(
     "/cards/{card_id}",
-    response_model=KnowledgeCard,
+    response_model=KnowledgeCardDetail,
 )
 def update_saved_card(
     card_id: str,
     request: KnowledgeCardUpdate,
-) -> KnowledgeCard:
+) -> KnowledgeCardDetail:
     try:
         return knowledge_card_service.update_saved_card(card_id, request)
     except knowledge_card_service.KnowledgeCardServiceError as exc:
         raise_knowledge_card_http_error(exc)
+
+
+@app.get(
+    "/cards/{card_id}/review-items",
+    response_model=list[ReviewItem],
+)
+def list_card_review_items(card_id: str) -> list[ReviewItem]:
+    try:
+        return review_item_service.list_card_review_items(card_id)
+    except review_item_service.ReviewItemServiceError as exc:
+        raise_review_item_http_error(exc)
+
+
+@app.post(
+    "/cards/{card_id}/review-items",
+    response_model=ReviewItem,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_card_review_item(
+    card_id: str,
+    request: ReviewItemCreate,
+) -> ReviewItem:
+    try:
+        return review_item_service.save_card_review_item(card_id, request)
+    except review_item_service.ReviewItemServiceError as exc:
+        raise_review_item_http_error(exc)
+
+
+@app.patch(
+    "/review-items/{item_id}",
+    response_model=ReviewItem,
+)
+def update_review_item(
+    item_id: str,
+    request: ReviewItemUpdate,
+) -> ReviewItem:
+    try:
+        return review_item_service.update_saved_review_item(item_id, request)
+    except review_item_service.ReviewItemServiceError as exc:
+        raise_review_item_http_error(exc)
+
+
+@app.post(
+    "/review-items/{item_id}/rate",
+    response_model=ReviewRatingResult,
+)
+def rate_review_item(
+    item_id: str,
+    request: ReviewRatingRequest,
+) -> ReviewRatingResult:
+    try:
+        return review_service.rate_review_item(item_id, request)
+    except review_service.ReviewServiceError as exc:
+        raise_review_http_error(exc)
+
+
+@app.delete(
+    "/review-items/{item_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_review_item(item_id: str) -> Response:
+    try:
+        review_item_service.delete_saved_review_item(item_id)
+    except review_item_service.ReviewItemServiceError as exc:
+        raise_review_item_http_error(exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.delete(

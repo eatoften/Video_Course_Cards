@@ -32,6 +32,7 @@ class AppPathSettings(BaseModel):
     transcript_dir: Path
     export_dir: Path
     log_dir: Path
+    source_dir: Path
 
 
 def _read_env_file() -> dict[str, str]:
@@ -171,6 +172,13 @@ def get_app_path_settings() -> AppPathSettings:
             env_file_values,
         )
     )
+    source_dir = Path(
+        _env(
+            "VCC_SOURCE_DIR",
+            str(data_dir / "sources"),
+            env_file_values,
+        )
+    )
 
     return AppPathSettings(
         data_dir=data_dir,
@@ -179,6 +187,7 @@ def get_app_path_settings() -> AppPathSettings:
         transcript_dir=transcript_dir,
         export_dir=export_dir,
         log_dir=log_dir,
+        source_dir=source_dir,
     )
 
 

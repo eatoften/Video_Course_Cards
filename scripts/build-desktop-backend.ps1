@@ -28,6 +28,9 @@ try {
         --hidden-import "app.main" `
         --collect-submodules "app" `
         --collect-submodules "uvicorn" `
+        --collect-submodules "pptx" `
+        --collect-submodules "docx" `
+        --collect-submodules "pypdf" `
         "app\desktop_server.py"
 }
 finally {

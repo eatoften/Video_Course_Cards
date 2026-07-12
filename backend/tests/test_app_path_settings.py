@@ -15,6 +15,7 @@ def test_app_path_settings_use_vcc_data_dir(monkeypatch, tmp_path) -> None:
     assert paths.transcript_dir == tmp_path / "transcripts"
     assert paths.export_dir == tmp_path / "exports"
     assert paths.log_dir == tmp_path / "logs"
+    assert paths.source_dir == tmp_path / "sources"
 
     settings.get_app_path_settings.cache_clear()
 

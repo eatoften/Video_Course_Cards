@@ -9,7 +9,7 @@ from app.job_store import create_job
 client = TestClient(main.app)
 
 
-def test_init_db_drops_legacy_cards_without_claims(tmp_path):
+def test_init_db_replaces_unusable_legacy_cards_without_claims(tmp_path):
     db_path = tmp_path / "legacy.db"
     configure_db(db_path)
 
@@ -75,11 +75,13 @@ def test_init_db_drops_legacy_cards_without_claims(tmp_path):
     assert "claims" in columns
     assert "unsupported_terms" in columns
     assert "tags" in columns
-    assert "review_state" in columns
+    assert "card_kind" in columns
+    assert "content_status" in columns
+    assert "difficulty" not in columns
     assert rows == []
 
 
-def test_init_db_adds_card_organization_columns_without_dropping(tmp_path):
+def test_init_db_migrates_v1_cards_and_recall_items(tmp_path):
     db_path = tmp_path / "cards.db"
     configure_db(db_path)
 
@@ -116,12 +118,14 @@ def test_init_db_adds_card_organization_columns_without_dropping(tmp_path):
                 key_points,
                 claims,
                 unsupported_terms,
+                question,
+                answer,
                 difficulty,
                 source_start_seconds,
                 source_end_seconds,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "card-123",
@@ -131,6 +135,8 @@ def test_init_db_adds_card_organization_columns_without_dropping(tmp_path):
                 "[]",
                 "[]",
                 "[]",
+                "What is SVD?",
+                "A matrix factorization.",
                 "medium",
                 0.0,
                 1.0,
@@ -144,18 +150,25 @@ def test_init_db_adds_card_organization_columns_without_dropping(tmp_path):
     with connect() as conn:
         row = conn.execute(
             """
-            SELECT id, tags, review_state
+            SELECT id, card_kind, tags, content_status
             FROM knowledge_cards
             WHERE id = ?
             """,
             ("card-123",),
         ).fetchone()
+        review_item = conn.execute(
+            "SELECT * FROM review_items WHERE card_id = ?",
+            ("card-123",),
+        ).fetchone()
 
     assert dict(row) == {
         "id": "card-123",
+        "card_kind": "concept",
         "tags": "[]",
-        "review_state": "draft",
+        "content_status": "draft",
     }
+    assert review_item["prompt"] == "What is SVD?"
+    assert review_item["expected_answer"] == "A matrix factorization."
 
 
 def create_uploaded_job(tmp_path, job_id: str = "job-123") -> VideoJob:
@@ -193,9 +206,14 @@ def card_payload() -> dict:
             }
         ],
         "unsupported_terms": [],
-        "question": "What is the first big subject?",
-        "answer": "Linear algebra.",
-        "difficulty": "easy",
+        "review_items": [
+            {
+                "item_type": "basic",
+                "prompt": "What is the first big subject?",
+                "expected_answer": "Linear algebra.",
+                "source": "generated",
+            }
+        ],
         "source_start_seconds": 36.44,
         "source_end_seconds": 92.68,
         "provider": "ollama",
@@ -222,10 +240,16 @@ def test_save_and_list_job_cards(tmp_path):
         "Symmetric matrices",
         "Orthogonal matrices",
     ]
-    assert created_card["claims"] == card_payload()["claims"]
+    assert created_card["claims"][0]["text"] == card_payload()["claims"][0]["text"]
+    assert created_card["claims"][0]["id"]
+    assert created_card["claims"][0]["evidence"][0]["id"]
     assert created_card["unsupported_terms"] == []
     assert created_card["tags"] == []
-    assert created_card["review_state"] == "draft"
+    assert created_card["card_kind"] == "concept"
+    assert created_card["content_status"] == "draft"
+    assert created_card["review_items"][0]["prompt"] == (
+        "What is the first big subject?"
+    )
     assert created_card["created_at"]
     assert created_card["updated_at"]
 
@@ -269,13 +293,13 @@ def test_update_saved_card(tmp_path):
                 "Matrix factorization",
                 "Orthogonal matrices",
             ],
-            "difficulty": "medium",
+            "card_kind": "definition",
             "tags": [
                 "SVD",
                 "matrix factorization",
                 "svd",
             ],
-            "review_state": "reviewed",
+            "content_status": "reviewed",
         },
     )
 
@@ -293,12 +317,12 @@ def test_update_saved_card(tmp_path):
         "Orthogonal matrices",
     ]
     assert updated_card["claims"] == created_card["claims"]
-    assert updated_card["difficulty"] == "medium"
+    assert updated_card["card_kind"] == "definition"
     assert updated_card["tags"] == [
         "svd",
         "matrix factorization",
     ]
-    assert updated_card["review_state"] == "reviewed"
+    assert updated_card["content_status"] == "reviewed"
     assert updated_card["updated_at"] >= created_card["updated_at"]
 
 

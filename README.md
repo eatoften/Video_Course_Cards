@@ -26,12 +26,12 @@
 
 ## Overview
 
-Video Course Cards is a local-first AI learning workspace for lecture videos. It turns a video into a transcript, cuts the transcript into semantic chunks, drafts grounded knowledge cards with a local LLM, stores everything in SQLite, embeds cards for retrieval, and exports portable Markdown snapshots.
+Video Course Cards is a local-first AI learning workspace for lecture videos. It turns a video into a transcript, cuts the transcript into semantic chunks, drafts grounded knowledge cards with a local LLM, organizes them into a course map, schedules evidence-backed recall with FSRS, and exports portable Markdown snapshots.
 
 The project is not trying to be another generic "chat with your transcript" demo. The core object is a **claim-grounded knowledge card**: a structured learning unit whose claims point back to transcript evidence and timestamps. And the future plan is to turn these cards in to a graph which can serve as an external world model that a controller can plan over, while a decoder can take the plan and graph as an input to generate answers.
 
 ```text
-video -> transcript -> semantic chunks -> grounded cards -> card embeddings -> retrieval -> Markdown export
+video -> transcript -> semantic chunks -> grounded cards -> course map / review / graph -> Markdown export
 ```
 
 SQLite is the source of truth. Markdown is an export format.
@@ -45,6 +45,9 @@ This repository explores that pipeline as a local desktop application:
 - **Grounded generation**: cards keep claims, evidence, and source timestamps.
 - **Local-first storage**: videos, transcripts, cards, embeddings, and notes stay on the user's machine.
 - **Structured memory**: cards are JSON/SQLite records before they become Markdown.
+- **Learning structure**: a topic tree expresses curriculum order while card relations preserve lateral connections.
+- **Active recall**: independent review items are scheduled locally with FSRS and retain links to grounded claims.
+- **Concept study**: cards can grow into versioned Markdown documents grounded in course claims and local source files.
 - **Retrieval baseline**: card embeddings support ordinary dense retrieval before more advanced graph-guided methods.
 - **Portable output**: exports are Obsidian-friendly Markdown snapshots.
 
@@ -61,8 +64,14 @@ It can:
 - show transcript segments next to the course workspace;
 - create semantic transcript chunks with Sentence Transformer embeddings;
 - generate cards manually from selected transcript text or automatically from chunks;
-- save, edit, delete, tag, and review cards;
+- save, edit, delete, tag, and classify card content;
 - attach user notes to cards;
+- organize cards in a nested Course Map, manually or from embedding-based suggestions;
+- create multiple review prompts per card and schedule them independently with FSRS;
+- review by course or topic with expected answers and transcript evidence;
+- import PPTX, PDF, DOCX, TXT, or Markdown as locally stored source units;
+- create, edit, generate, cite, version, and restore concept Study documents;
+- inspect Course Map review/Study coverage and correct Topics by merge or split;
 - embed cards and run dense card retrieval;
 - compute and persist related-card edges with cosine similarity;
 - explore cards in an interactive course graph;
@@ -192,6 +201,7 @@ flowchart LR
         JOBS["Job service"]
         PIPELINE["Video pipeline"]
         CARDS["Card services"]
+        REVIEW["Topic + review services"]
         RAG["Retrieval services"]
     end
 
@@ -214,6 +224,7 @@ flowchart LR
     PIPELINE --> FFMPEG
     PIPELINE --> WHISPER
     CARDS --> LLM
+    REVIEW --> DB
     RAG --> EMB
     API <--> DB
     API <--> FILES
@@ -229,6 +240,10 @@ The backend is deliberately split by responsibility:
 | `video_pipeline.py` | media probe, audio extraction, transcription |
 | `transcript_chunker.py` | semantic transcript chunking |
 | `knowledge_card_service.py` | card persistence and updates |
+| `topic_service.py` | course hierarchy and card membership workflows |
+| `review_service.py` | FSRS queue construction and rating workflow |
+| `source_asset_service.py` | local document validation, storage, and extraction orchestration |
+| `learning_document_service.py` | anchor-card documents, citations, LLM generation, and versions |
 | `card_embedding_service.py` | card text -> embedding workflow |
 | `rag_service.py` | card retrieval baseline |
 | `desktop_server.py` | packaged backend sidecar entrypoint |
@@ -239,29 +254,44 @@ A card is stored as structured data, not just markdown text.
 
 ```json
 {
+  "card_kind": "concept",
   "title": "Singular Value Decomposition",
   "summary": "SVD factors a matrix into orthogonal and diagonal structure.",
+  "content_status": "reviewed",
   "tags": ["linear algebra", "matrix factorization"],
   "source_start_seconds": 724.0,
   "source_end_seconds": 738.0,
   "claims": [
     {
+      "id": "claim-uuid",
       "text": "SVD decomposes a matrix using orthogonal and diagonal components.",
       "evidence": [
         {
-          "text": "called the singular value decomposition",
-          "start_seconds": 724.0,
-          "end_seconds": 738.0
+          "id": "evidence-uuid",
+          "quote": "called the singular value decomposition",
+          "segment_start_seconds": 724.0,
+          "segment_end_seconds": 738.0
         }
       ]
     }
-  ],
-  "question": "What structure does SVD use to factor a matrix?",
-  "answer": "It uses orthogonal matrices and a diagonal matrix."
+  ]
 }
 ```
 
-This shape makes later work possible: duplicate detection, related-card search, graph edges, citation-aware RAG, and feedback-based evaluation.
+Recall prompts are separate scheduling units:
+
+```json
+{
+  "card_id": "card-uuid",
+  "item_type": "explain",
+  "prompt": "What structure does SVD use to factor a matrix?",
+  "expected_answer": "It uses orthogonal matrices and a diagonal matrix.",
+  "source_claim_ids": ["claim-uuid"]
+}
+```
+
+This separation allows one knowledge card to have several independently
+scheduled review prompts without mixing memory state into card content.
 
 ## API Surface
 
@@ -282,6 +312,16 @@ Selected endpoints:
 | `GET /courses/{course_id}/card-relations` | return graph nodes and relation edges |
 | `POST /courses/{course_id}/card-relations` | create a manual typed relation |
 | `POST /card-relations/{relation_id}/classify` | classify a relation with local Qwen |
+| `GET /courses/{course_id}/map` | return topics, memberships and topic relations |
+| `POST /courses/{course_id}/topics/suggest` | cluster Unsorted cards into reviewable topic suggestions |
+| `PUT /cards/{card_id}/primary-topic` | move a card to a primary topic |
+| `GET /courses/{course_id}/review/queue` | get due FSRS review items by course or topic |
+| `POST /review-items/{review_item_id}/rate` | rate recall and schedule the next review |
+| `POST /courses/{course_id}/source-assets` | import and locally extract PPTX/PDF/DOCX/text |
+| `POST /cards/{card_id}/learning-documents` | create a Study document around an anchor card |
+| `POST /learning-documents/{document_id}/generate` | generate a cited local-Qwen Study draft |
+| `PATCH /learning-documents/{document_id}` | edit a document and create a version |
+| `POST /learning-documents/{document_id}/restore` | restore an older version as a new version |
 | `POST /rag/retrieve` | retrieve relevant cards for a question |
 | `POST /jobs/{job_id}/cards/export/markdown/folder` | export one job as Markdown |
 | `POST /cards/export/markdown/folder` | export all cards as Markdown |
@@ -320,18 +360,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-desktop-backe
 
 Near term:
 
-- improve automatic card generation reliability;
-- improve semantic chunk boundary quality;
-- detect duplicate or near-duplicate cards with embeddings;
-- show related cards in the UI;
+- evaluate automatic topic coherence on complete courses using the new metrics;
+- exercise Study generation on PPT/PDF-backed concepts;
+- tune semantic chunk boundaries and duplicate-card detection;
+- continue splitting the remaining legacy workspace component into view modules;
 - turn card retrieval into a citation-grounded answer assistant;
-- add evaluation records for latency, unsupported claims, duplicates, and retrieval misses.
+- add evaluation records for grounding, retrieval, topic coherence and retention.
 
 Longer term:
 
-- build a card similarity graph;
-- add relation types such as `prerequisite`, `example_of`, `contrast_with`, and `part_of`;
-- support human-in-the-loop graph editing;
 - compare ordinary dense RAG against graph-guided retrieval;
 - use user edits and save/delete decisions as a feedback dataset for future agentic learning loops.
 

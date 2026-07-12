@@ -11,6 +11,8 @@ from app.job import VideoJob, VideoJobStatus
 from app.job_store import create_job
 from app.knowledge_card import KnowledgeCard
 from app.knowledge_card_store import create_card
+from app.review_item import ReviewItem
+from app.review_item_store import create_review_item
 
 
 client = TestClient(main.app)
@@ -79,19 +81,28 @@ def create_svd_card(job_id: str, card_id: str = "card-svd") -> KnowledgeCard:
             }
         ],
         unsupported_terms=[],
-        question="What structures appear in SVD?",
-        answer="Orthogonal and diagonal matrix structure.",
         tags=[
             "linear algebra",
             "svd",
         ],
-        review_state="reviewed",
+        content_status="reviewed",
         source_start_seconds=724.0,
         source_end_seconds=738.0,
         provider="ollama",
         model="qwen3:4b",
     )
     create_card(card)
+    create_review_item(
+        ReviewItem(
+            id=f"review-{card_id}",
+            card_id=card_id,
+            item_type="basic",
+            prompt="What structures appear in SVD?",
+            expected_answer="Orthogonal and diagonal matrix structure.",
+            source_claim_ids=[card.claims[0].id],
+            source="generated",
+        )
+    )
 
     return card
 

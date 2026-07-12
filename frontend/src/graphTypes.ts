@@ -34,7 +34,7 @@ export type CardGraphNode = {
   title: string
   summary: string
   tags: string[]
-  review_state: 'draft' | 'reviewed' | 'needs_fix'
+  content_status: 'draft' | 'reviewed' | 'needs_fix'
   source_start_seconds: number
   source_end_seconds: number
   x?: number

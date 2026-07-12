@@ -111,7 +111,7 @@ def test_card_embedding_text_serializes_structured_card(tmp_path):
     assert "- Symmetric matrices" in text
     assert "- Claim: Linear algebra is one of the course's core subjects." in text
     assert "Evidence: The first big subject is linear algebra." in text
-    assert "Q: What is the first big subject?" in text
+    assert "Active recall:" not in text
     assert "Tags:\nlinear algebra, matrix" in text
     assert "ollama" not in text
     assert hash_card_embedding_text(text) == hash_card_embedding_text(text)

@@ -1,7 +1,7 @@
-import { Network, PanelsTopLeft } from 'lucide-react'
+import { BookOpenCheck, BookOpenText, ListTree, Network, PanelsTopLeft } from 'lucide-react'
 
 
-export type AppView = 'workspace' | 'graph'
+export type AppView = 'workspace' | 'course-map' | 'study' | 'review' | 'graph'
 
 
 type AppSidebarProps = {
@@ -16,7 +16,10 @@ const NAV_ITEMS: Array<{
   icon: typeof PanelsTopLeft
 }> = [
   { id: 'workspace', label: 'Workspace', icon: PanelsTopLeft },
-  { id: 'graph', label: 'Knowledge graph', icon: Network },
+  { id: 'course-map', label: 'Course map', icon: ListTree },
+  { id: 'study', label: 'Study', icon: BookOpenText },
+  { id: 'review', label: 'Review', icon: BookOpenCheck },
+  { id: 'graph', label: 'Explore', icon: Network },
 ]
 
 

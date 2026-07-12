@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass
 from time import perf_counter
 from collections.abc import Iterable
-from typing import Literal, Protocol
+from typing import Protocol
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -13,7 +13,6 @@ from .llm_client import LLMClientError, LLMMessage, LLMTimeoutError
 from .settings import LLMSettings
 
 
-Difficulty = Literal["easy", "medium", "hard"]
 MAX_CONTEXT_CHARACTERS = 4000
 MAX_SELECTED_SEGMENTS = 80
 
@@ -117,7 +116,6 @@ class KnowledgeCardDraft(BaseModel):
     unsupported_terms: list[str] = Field(default_factory=list)
     question: str
     answer: str
-    difficulty: Difficulty = "medium"
     source_start_seconds: float
     source_end_seconds: float
 
@@ -163,7 +161,6 @@ class _LLMKnowledgeCard(BaseModel):
     claims: list[_LLMCardClaim] = Field(default_factory=list)
     question: str
     answer: str
-    difficulty: Difficulty = "medium"
 
 
 class _LLMCardPayload(BaseModel):
@@ -425,8 +422,7 @@ Return exactly this JSON shape:
         }}
       ],
       "question": "active recall question",
-      "answer": "short reference answer",
-      "difficulty": "easy"
+      "answer": "short reference answer"
     }}
   ]
 }}
@@ -473,8 +469,7 @@ The following output should have been valid JSON with this shape:
         }}
       ],
       "question": "active recall question",
-      "answer": "reference answer",
-      "difficulty": "easy"
+      "answer": "reference answer"
     }}
   ]
 }}
@@ -575,7 +570,6 @@ def _build_grounded_cards(
                 unsupported_terms=unsupported_terms,
                 question=llm_card.question.strip(),
                 answer=llm_card.answer.strip(),
-                difficulty=llm_card.difficulty,
                 source_start_seconds=source_start_seconds,
                 source_end_seconds=source_end_seconds,
             )

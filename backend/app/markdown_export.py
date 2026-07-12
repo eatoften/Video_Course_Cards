@@ -4,6 +4,7 @@ import unicodedata
 from dataclasses import dataclass
 
 from .knowledge_card import KnowledgeCard
+from .review_item import ReviewItem
 
 
 INVALID_FILENAME_CHARS = r'<>:"/\|?*'
@@ -24,7 +25,9 @@ class MarkdownCardSource:
 def render_card_markdown(
     card: KnowledgeCard,
     source: MarkdownCardSource,
+    review_items: list[ReviewItem] | None = None,
 ) -> str:
+    active_review_items = review_items or []
     lines = [
         "---",
         "type: knowledge-card",
@@ -34,7 +37,8 @@ def render_card_markdown(
         f"card_id: {_yaml_string(card.id)}",
         f"source_start: {_yaml_string(format_timestamp(card.source_start_seconds))}",
         f"source_end: {_yaml_string(format_timestamp(card.source_end_seconds))}",
-        f"review_state: {_yaml_string(card.review_state)}",
+        f"card_kind: {_yaml_string(card.card_kind)}",
+        f"content_status: {_yaml_string(card.content_status)}",
         *_tag_frontmatter_lines(card.tags),
         "---",
         "",
@@ -79,15 +83,19 @@ def render_card_markdown(
                 ),
             ])
 
-    lines.extend([
-        "",
-        "## Active Recall",
-        "",
-        f"Q: {card.question or '_No question saved._'}",
-        "",
-        f"A: {card.answer or '_No answer saved._'}",
-        "",
-    ])
+    lines.extend(["", "## Active Recall", ""])
+    if active_review_items:
+        for index, item in enumerate(active_review_items, start=1):
+            lines.extend([
+                f"### {index}. {item.item_type.replace('_', ' ').title()}",
+                "",
+                f"Q: {item.prompt}",
+                "",
+                f"A: {item.expected_answer}",
+                "",
+            ])
+    else:
+        lines.extend(["_No review items saved._", ""])
 
     if card.unsupported_terms:
         lines.extend([
@@ -103,7 +111,8 @@ def render_card_markdown(
     lines.extend([
         "## Metadata",
         "",
-        f"- Review state: {card.review_state}",
+        f"- Card kind: {card.card_kind}",
+        f"- Content status: {card.content_status}",
         f"- Provider: {card.provider or 'unknown'}",
         f"- Model: {card.model or 'unknown'}",
         f"- Created: {card.created_at.isoformat()}",

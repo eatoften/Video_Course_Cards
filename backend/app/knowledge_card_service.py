@@ -6,9 +6,12 @@ from .knowledge_card import (
     KnowledgeCard,
     KnowledgeCardClaim,
     KnowledgeCardCreate,
+    KnowledgeCardDetail,
     KnowledgeCardEvidence,
     KnowledgeCardUpdate,
 )
+from .review_item_service import save_initial_review_items
+from .review_item_store import list_review_items_for_card
 from .knowledge_card_store import (
     create_card,
     delete_card,
@@ -31,25 +34,25 @@ class InvalidKnowledgeCardError(KnowledgeCardServiceError):
     pass
 
 
-def list_job_cards(job_id: str) -> list[KnowledgeCard]:
+def list_job_cards(job_id: str) -> list[KnowledgeCardDetail]:
     get_video_job(job_id)
 
-    return list_cards_for_job(job_id)
+    return [_to_detail(card) for card in list_cards_for_job(job_id)]
 
 
-def get_saved_card(card_id: str) -> KnowledgeCard:
+def get_saved_card(card_id: str) -> KnowledgeCardDetail:
     card = get_card(card_id)
 
     if card is None:
         raise KnowledgeCardNotFoundError("Knowledge card not found.")
 
-    return card
+    return _to_detail(card)
 
 
 def save_job_card(
     job_id: str,
     request: KnowledgeCardCreate,
-) -> KnowledgeCard:
+) -> KnowledgeCardDetail:
     get_video_job(job_id)
     _validate_time_range(
         request.source_start_seconds,
@@ -60,16 +63,14 @@ def save_job_card(
     card = KnowledgeCard(
         id=uuid4().hex,
         job_id=job_id,
+        card_kind=request.card_kind,
         title=request.title.strip(),
         summary=request.summary.strip(),
         key_points=_clean_key_points(request.key_points),
         claims=_clean_claims(request.claims),
         unsupported_terms=_clean_terms(request.unsupported_terms),
-        question=_clean_optional_text(request.question),
-        answer=_clean_optional_text(request.answer),
-        difficulty=request.difficulty,
         tags=_clean_tags(request.tags),
-        review_state=request.review_state,
+        content_status=request.content_status,
         source_start_seconds=request.source_start_seconds,
         source_end_seconds=request.source_end_seconds,
         provider=_clean_optional_text(request.provider),
@@ -79,20 +80,24 @@ def save_job_card(
     )
 
     create_card(card)
+    save_initial_review_items(card.id, request.review_items)
 
-    return card
+    return _to_detail(card)
 
 
 def update_saved_card(
     card_id: str,
     request: KnowledgeCardUpdate,
-) -> KnowledgeCard:
+) -> KnowledgeCardDetail:
     card = get_card(card_id)
 
     if card is None:
         raise KnowledgeCardNotFoundError("Knowledge card not found.")
 
     update_data = request.model_dump(exclude_unset=True)
+
+    if "card_kind" in update_data and request.card_kind is not None:
+        card.card_kind = request.card_kind
 
     if "title" in update_data and request.title is not None:
         card.title = request.title.strip()
@@ -112,20 +117,11 @@ def update_saved_card(
     ):
         card.unsupported_terms = _clean_terms(request.unsupported_terms)
 
-    if "question" in update_data:
-        card.question = _clean_optional_text(request.question)
-
-    if "answer" in update_data:
-        card.answer = _clean_optional_text(request.answer)
-
-    if "difficulty" in update_data and request.difficulty is not None:
-        card.difficulty = request.difficulty
-
     if "tags" in update_data and request.tags is not None:
         card.tags = _clean_tags(request.tags)
 
-    if "review_state" in update_data and request.review_state is not None:
-        card.review_state = request.review_state
+    if "content_status" in update_data and request.content_status is not None:
+        card.content_status = request.content_status
 
     if (
         "source_start_seconds" in update_data
@@ -153,7 +149,14 @@ def update_saved_card(
     card.updated_at = utc_now()
     update_card(card)
 
-    return card
+    return _to_detail(card)
+
+
+def _to_detail(card: KnowledgeCard) -> KnowledgeCardDetail:
+    return KnowledgeCardDetail(
+        **card.model_dump(),
+        review_items=list_review_items_for_card(card.id),
+    )
 
 
 def delete_saved_card(card_id: str) -> None:
@@ -201,6 +204,7 @@ def _clean_claims(
         if text and evidence:
             cleaned_claims.append(
                 KnowledgeCardClaim(
+                    id=claim.id,
                     text=text,
                     evidence=evidence,
                 )
@@ -230,6 +234,7 @@ def _clean_evidence(
         if quote:
             cleaned_evidence.append(
                 KnowledgeCardEvidence(
+                    id=evidence.id,
                     quote=quote,
                     segment_start_seconds=evidence.segment_start_seconds,
                     segment_end_seconds=evidence.segment_end_seconds,

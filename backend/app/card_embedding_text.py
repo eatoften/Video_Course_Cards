@@ -39,15 +39,6 @@ def build_card_embedding_text(card: KnowledgeCard) -> str:
                 if quote:
                     lines.append(f"  Evidence: {quote}")
 
-    if card.question or card.answer:
-        lines.extend(["", "Active recall:"])
-
-        if card.question:
-            lines.append(f"Q: {_clean_text(card.question)}")
-
-        if card.answer:
-            lines.append(f"A: {_clean_text(card.answer)}")
-
     if card.tags:
         tags = [
             _clean_text(tag)

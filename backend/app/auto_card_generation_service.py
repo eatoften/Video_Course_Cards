@@ -18,6 +18,7 @@ from .card_generation_run_store import (
 )
 from .job import utc_now
 from .knowledge_card import KnowledgeCardCreate
+from .review_item import ReviewItemCreate
 from .knowledge_card_store import list_cards_for_job
 from .transcript_chunk import TranscriptChunk
 from .transcript_chunk_store import list_chunks_for_job
@@ -222,15 +223,21 @@ def _save_new_cards_from_draft(
                 key_points=card.key_points,
                 claims=card.claims,
                 unsupported_terms=card.unsupported_terms,
-                question=card.question,
-                answer=card.answer,
-                difficulty=card.difficulty,
                 tags=[],
-                review_state="draft",
+                content_status="draft",
                 source_start_seconds=card.source_start_seconds,
                 source_end_seconds=card.source_end_seconds,
                 provider=draft.provider,
                 model=draft.model,
+                review_items=[
+                    ReviewItemCreate(
+                        item_type="basic",
+                        prompt=card.question,
+                        expected_answer=card.answer,
+                        source_claim_ids=[claim.id for claim in card.claims],
+                        source="generated",
+                    )
+                ],
             ),
         )
         existing_signatures.add(signature)

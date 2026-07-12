@@ -22,6 +22,9 @@ from .knowledge_card_store import (
     list_card_index_for_course,
     list_cards_for_course,
 )
+from .topic_store import delete_topics_for_course
+from .learning_document_store import move_learning_documents_to_course
+from .source_asset_store import move_source_assets_to_course
 
 
 class CourseServiceError(Exception):
@@ -104,6 +107,9 @@ def delete_video_course(course_id: str) -> None:
         raise DefaultCourseDeleteError("Default course cannot be deleted.")
 
     move_jobs_to_course(course.id, DEFAULT_COURSE_ID)
+    move_learning_documents_to_course(course.id, DEFAULT_COURSE_ID)
+    move_source_assets_to_course(course.id, DEFAULT_COURSE_ID)
+    delete_topics_for_course(course.id)
     delete_course(course.id)
 
 

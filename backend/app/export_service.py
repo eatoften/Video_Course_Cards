@@ -12,6 +12,7 @@ from .job_service import get_video_job
 from .job_store import get_job
 from .knowledge_card import KnowledgeCard
 from .knowledge_card_store import list_cards, list_cards_for_job
+from .review_item_store import list_review_items_for_card
 from .markdown_export import (
     MarkdownCardSource,
     render_card_markdown,
@@ -276,6 +277,7 @@ def _render_record(record: CardExportRecord) -> str:
             video_title=record.video_title,
             job_id=record.job.id,
         ),
+        review_items=list_review_items_for_card(record.card.id),
     )
 
 

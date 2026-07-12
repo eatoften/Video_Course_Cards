@@ -1,15 +1,23 @@
 import {
   useEffect,
+  lazy,
   useMemo,
   useRef,
   useState,
+  Suspense,
   type ChangeEvent,
   type MouseEvent,
 } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { AppSidebar, type AppView } from './AppSidebar'
+import { CourseMapView } from './CourseMapView'
 import { GraphView } from './GraphView'
+import { ReviewView } from './ReviewView'
 import './App.css'
+
+const StudyView = lazy(() =>
+  import('./StudyView').then((module) => ({ default: module.StudyView })),
+)
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8001'
@@ -123,12 +131,14 @@ type RuntimeStatus = {
 }
 
 type KnowledgeCardEvidence = {
+  id: string
   quote: string
   segment_start_seconds: number
   segment_end_seconds: number
 }
 
 type KnowledgeCardClaim = {
+  id: string
   text: string
   evidence: KnowledgeCardEvidence[]
 }
@@ -141,12 +151,31 @@ type KnowledgeCardDraft = {
   unsupported_terms: string[]
   question: string
   answer: string
-  difficulty: 'easy' | 'medium' | 'hard'
   source_start_seconds: number
   source_end_seconds: number
 }
 
-type CardReviewState = 'draft' | 'reviewed' | 'needs_fix'
+type CardContentStatus = 'draft' | 'reviewed' | 'needs_fix'
+type CardKind =
+  | 'concept'
+  | 'definition'
+  | 'process'
+  | 'comparison'
+  | 'example'
+  | 'formula'
+
+type ReviewItem = {
+  id: string
+  card_id: string
+  item_type: 'basic' | 'cloze' | 'explain' | 'compare' | 'apply'
+  prompt: string
+  expected_answer: string
+  source_claim_ids: string[]
+  source: 'generated' | 'manual' | 'local_llm'
+  status: 'active' | 'disabled'
+  created_at: string
+  updated_at: string
+}
 
 type CardGenerationMetadata = {
   provider: string
@@ -215,10 +244,10 @@ type CardGenerationRun = {
 type KnowledgeCard = Omit<KnowledgeCardDraft, 'question' | 'answer'> & {
   id: string
   job_id: string
-  question: string | null
-  answer: string | null
+  card_kind: CardKind
   tags: string[]
-  review_state: CardReviewState
+  content_status: CardContentStatus
+  review_items: ReviewItem[]
   provider: string | null
   model: string | null
   created_at: string
@@ -230,13 +259,15 @@ type KnowledgeCardIndexItem = {
   job_id: string
   title: string
   summary: string
-  difficulty: KnowledgeCardDraft['difficulty']
+  card_kind: CardKind
   tags: string[]
-  review_state: CardReviewState
+  content_status: CardContentStatus
+  review_item_count: number
   source_video: string | null
   source_start_seconds: number
   source_end_seconds: number
   note_count: number
+  learning_document_count: number
   created_at: string
   updated_at: string
 }
@@ -286,13 +317,18 @@ type KnowledgeCardNote = {
 }
 
 type CardEditForm = {
+  card_kind: CardKind
   title: string
   summary: string
   key_points: string
-  question: string
-  answer: string
   tags: string
-  review_state: CardReviewState
+  content_status: CardContentStatus
+}
+
+type ReviewItemForm = {
+  item_type: ReviewItem['item_type']
+  prompt: string
+  expected_answer: string
 }
 
 type NoteForm = {
@@ -347,9 +383,16 @@ function isTauriRuntime(): boolean {
 }
 
 function getViewFromUrl(): AppView {
-  return new URL(window.location.href).searchParams.get('view') === 'graph'
-    ? 'graph'
-    : 'workspace'
+  const view = new URL(window.location.href).searchParams.get('view')
+  if (
+    view === 'course-map' ||
+    view === 'study' ||
+    view === 'review' ||
+    view === 'graph'
+  ) {
+    return view
+  }
+  return 'workspace'
 }
 
 function sleep(milliseconds: number): Promise<void> {
@@ -452,6 +495,14 @@ function createDefaultNoteForm(): NoteForm {
     note_type: 'user_note',
     title: '',
     body: '',
+  }
+}
+
+function createDefaultReviewItemForm(): ReviewItemForm {
+  return {
+    item_type: 'basic',
+    prompt: '',
+    expected_answer: '',
   }
 }
 
@@ -688,7 +739,7 @@ function App() {
   >([])
   const [cardRailSearch, setCardRailSearch] = useState('')
   const [cardRailReviewFilter, setCardRailReviewFilter] = useState<
-    'all' | CardReviewState
+    'all' | CardContentStatus
   >('all')
   const [cardRailTagFilter, setCardRailTagFilter] = useState('')
   const [cardRailNoteFilter, setCardRailNoteFilter] = useState<
@@ -711,6 +762,9 @@ function App() {
   const [editingCardId, setEditingCardId] = useState<string | null>(null)
   const [cardEditForm, setCardEditForm] = useState<CardEditForm | null>(null)
   const [noteForms, setNoteForms] = useState<Record<string, NoteForm>>({})
+  const [reviewItemForms, setReviewItemForms] = useState<
+    Record<string, ReviewItemForm>
+  >({})
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [noteEditForm, setNoteEditForm] = useState<NoteForm | null>(null)
   const [cardFocus, setCardFocus] = useState('')
@@ -723,6 +777,7 @@ function App() {
   const [isSavingCourse, setIsSavingCourse] = useState(false)
   const [isSavingCard, setIsSavingCard] = useState(false)
   const [isSavingNote, setIsSavingNote] = useState(false)
+  const [isSavingReviewItem, setIsSavingReviewItem] = useState(false)
   const [isExportingCards, setIsExportingCards] = useState(false)
   const [isDeletingJob, setIsDeletingJob] = useState(false)
   const [isCheckingLlm, setIsCheckingLlm] = useState(false)
@@ -787,7 +842,7 @@ function App() {
     return courseCardIndex.filter((card) => {
       if (
         cardRailReviewFilter !== 'all' &&
-        card.review_state !== cardRailReviewFilter
+        card.content_status !== cardRailReviewFilter
       ) {
         return false
       }
@@ -1002,10 +1057,9 @@ function App() {
         title: card.title,
         summary: card.summary,
         key_points: card.key_points.join('\n'),
-        question: card.question ?? '',
-        answer: card.answer ?? '',
         tags: card.tags.join(', '),
-        review_state: card.review_state,
+        card_kind: card.card_kind,
+        content_status: card.content_status,
       })
       setCardNotes((previousNotes) => ({
         ...previousNotes,
@@ -1122,6 +1176,16 @@ function App() {
   function openWorkspaceCard(cardId: string) {
     changeAppView('workspace')
     void openRailCard(cardId)
+  }
+
+  function openStudyCard(cardId: string) {
+    setAppView('study')
+    const url = new URL(window.location.href)
+    url.searchParams.set('view', 'study')
+    url.searchParams.set('card', cardId)
+    url.searchParams.delete('document')
+    if (selectedCourseId) url.searchParams.set('course', selectedCourseId)
+    window.history.pushState({}, '', url)
   }
 
   async function createCourse() {
@@ -1670,6 +1734,8 @@ function App() {
       throw new Error('No active job or draft cards.')
     }
 
+    const { question, answer, ...cardContent } = card
+
     return fetchJson<KnowledgeCard>(
       `/jobs/${job.id}/cards`,
       {
@@ -1678,9 +1744,20 @@ function App() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ...card,
+          ...cardContent,
+          card_kind: 'concept',
+          content_status: 'draft',
           provider: cardDraft.provider,
           model: cardDraft.model,
+          review_items: [
+            {
+              item_type: 'basic',
+              prompt: question,
+              expected_answer: answer,
+              source_claim_ids: card.claims.map((claim) => claim.id),
+              source: 'generated',
+            },
+          ],
         }),
       },
     )
@@ -1786,10 +1863,9 @@ function App() {
       title: card.title,
       summary: card.summary,
       key_points: card.key_points.join('\n'),
-      question: card.question ?? '',
-      answer: card.answer ?? '',
       tags: card.tags.join(', '),
-      review_state: card.review_state,
+      card_kind: card.card_kind,
+      content_status: card.content_status,
     })
   }
 
@@ -1816,10 +1892,9 @@ function App() {
               .split('\n')
               .map((point) => point.trim())
               .filter(Boolean),
-            question: cardEditForm.question || null,
-            answer: cardEditForm.answer || null,
+            card_kind: cardEditForm.card_kind,
             tags: parseTags(cardEditForm.tags),
-            review_state: cardEditForm.review_state,
+            content_status: cardEditForm.content_status,
           }),
         },
       )
@@ -1871,10 +1946,9 @@ function App() {
               .split('\n')
               .map((point) => point.trim())
               .filter(Boolean),
-            question: railCardEditForm.question || null,
-            answer: railCardEditForm.answer || null,
+            card_kind: railCardEditForm.card_kind,
             tags: parseTags(railCardEditForm.tags),
-            review_state: railCardEditForm.review_state,
+            content_status: railCardEditForm.content_status,
           }),
         },
       )
@@ -1884,10 +1958,9 @@ function App() {
         title: updatedCard.title,
         summary: updatedCard.summary,
         key_points: updatedCard.key_points.join('\n'),
-        question: updatedCard.question ?? '',
-        answer: updatedCard.answer ?? '',
+        card_kind: updatedCard.card_kind,
         tags: updatedCard.tags.join(', '),
-        review_state: updatedCard.review_state,
+        content_status: updatedCard.content_status,
       })
       setSavedCards((previousCards) =>
         sortCardsBySource(
@@ -2232,6 +2305,163 @@ function App() {
     }
   }
 
+  function updateReviewItemForm(
+    cardId: string,
+    updates: Partial<ReviewItemForm>,
+  ) {
+    setReviewItemForms((previousForms) => ({
+      ...previousForms,
+      [cardId]: {
+        ...(previousForms[cardId] ?? createDefaultReviewItemForm()),
+        ...updates,
+      },
+    }))
+  }
+
+  function replaceCardReviewItems(cardId: string, items: ReviewItem[]) {
+    setSavedCards((previousCards) =>
+      previousCards.map((card) =>
+        card.id === cardId ? { ...card, review_items: items } : card,
+      ),
+    )
+    setSelectedRailCard((currentCard) =>
+      currentCard?.id === cardId
+        ? { ...currentCard, review_items: items }
+        : currentCard,
+    )
+  }
+
+  async function saveReviewItem(card: KnowledgeCard) {
+    const form = reviewItemForms[card.id] ?? createDefaultReviewItemForm()
+    if (!form.prompt.trim() || !form.expected_answer.trim()) {
+      return
+    }
+
+    setIsSavingReviewItem(true)
+    setErrorMessage(null)
+    try {
+      const item = await fetchJson<ReviewItem>(
+        `/cards/${card.id}/review-items`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            item_type: form.item_type,
+            prompt: form.prompt,
+            expected_answer: form.expected_answer,
+            source_claim_ids: card.claims.map((claim) => claim.id),
+            source: 'manual',
+          }),
+        },
+      )
+      replaceCardReviewItems(card.id, [...card.review_items, item])
+      setReviewItemForms((previousForms) => ({
+        ...previousForms,
+        [card.id]: createDefaultReviewItemForm(),
+      }))
+      await loadCourseCardIndex(selectedCourseId)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Review item save failed.',
+      )
+    } finally {
+      setIsSavingReviewItem(false)
+    }
+  }
+
+  async function deleteReviewItem(card: KnowledgeCard, itemId: string) {
+    setIsSavingReviewItem(true)
+    setErrorMessage(null)
+    try {
+      await fetchJson<void>(`/review-items/${itemId}`, { method: 'DELETE' })
+      replaceCardReviewItems(
+        card.id,
+        card.review_items.filter((item) => item.id !== itemId),
+      )
+      await loadCourseCardIndex(selectedCourseId)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Review item delete failed.',
+      )
+    } finally {
+      setIsSavingReviewItem(false)
+    }
+  }
+
+  function renderReviewItems(card: KnowledgeCard) {
+    const form = reviewItemForms[card.id] ?? createDefaultReviewItemForm()
+    return (
+      <section className="review-items-section">
+        <div className="notes-heading">
+          <strong>Active recall</strong>
+          <span>{card.review_items.length}</span>
+        </div>
+        <div className="review-item-list">
+          {card.review_items.map((item) => (
+            <article key={item.id} className="review-item">
+              <div>
+                <span>{item.item_type}</span>
+                <span>{item.status}</span>
+              </div>
+              <strong>{item.prompt}</strong>
+              <p>{item.expected_answer}</p>
+              <button
+                type="button"
+                disabled={isSavingReviewItem}
+                onClick={() => void deleteReviewItem(card, item.id)}
+              >
+                Delete
+              </button>
+            </article>
+          ))}
+        </div>
+        <div className="review-item-form">
+          <select
+            value={form.item_type}
+            onChange={(event) =>
+              updateReviewItemForm(card.id, {
+                item_type: event.target.value as ReviewItem['item_type'],
+              })
+            }
+          >
+            <option value="basic">basic</option>
+            <option value="cloze">cloze</option>
+            <option value="explain">explain</option>
+            <option value="compare">compare</option>
+            <option value="apply">apply</option>
+          </select>
+          <textarea
+            value={form.prompt}
+            onChange={(event) =>
+              updateReviewItemForm(card.id, { prompt: event.target.value })
+            }
+            placeholder="Recall prompt"
+          />
+          <textarea
+            value={form.expected_answer}
+            onChange={(event) =>
+              updateReviewItemForm(card.id, {
+                expected_answer: event.target.value,
+              })
+            }
+            placeholder="Expected answer"
+          />
+          <button
+            type="button"
+            disabled={
+              isSavingReviewItem ||
+              !form.prompt.trim() ||
+              !form.expected_answer.trim()
+            }
+            onClick={() => void saveReviewItem(card)}
+          >
+            Add recall item
+          </button>
+        </div>
+      </section>
+    )
+  }
+
   function renderCardNotes(card: KnowledgeCard) {
     const notes = cardNotes[card.id] ?? []
     const form = getNoteForm(card.id)
@@ -2462,7 +2692,7 @@ function App() {
               value={cardRailReviewFilter}
               onChange={(event) =>
                 setCardRailReviewFilter(
-                  event.target.value as 'all' | CardReviewState,
+                  event.target.value as 'all' | CardContentStatus,
                 )
               }
             >
@@ -2513,7 +2743,7 @@ function App() {
                     {card.summary}
                   </span>
                   <small className="card-rail-meta-line">
-                    {card.review_state} ·{' '}
+                    {card.content_status} · {card.card_kind} ·{' '}
                     {card.source_video ?? 'video'} ·{' '}
                     {formatTime(card.source_start_seconds)} ·{' '}
                     {card.note_count} notes
@@ -2550,7 +2780,8 @@ function App() {
             {selectedRailCard && railCardEditForm && (
               <div className="rail-card-file">
                 <div className="rail-card-meta">
-                  <span>{selectedRailCard.review_state}</span>
+                  <span>{selectedRailCard.content_status}</span>
+                  <span>{selectedRailCard.card_kind}</span>
                   <span>
                     {formatTime(selectedRailCard.source_start_seconds)} -{' '}
                     {formatTime(selectedRailCard.source_end_seconds)}
@@ -2591,24 +2822,22 @@ function App() {
                       })
                     }
                   />
-                  <input
-                    value={railCardEditForm.question}
+                  <select
+                    value={railCardEditForm.card_kind}
                     onChange={(event) =>
                       setRailCardEditForm({
                         ...railCardEditForm,
-                        question: event.target.value,
+                        card_kind: event.target.value as CardKind,
                       })
                     }
-                  />
-                  <input
-                    value={railCardEditForm.answer}
-                    onChange={(event) =>
-                      setRailCardEditForm({
-                        ...railCardEditForm,
-                        answer: event.target.value,
-                      })
-                    }
-                  />
+                  >
+                    <option value="concept">concept</option>
+                    <option value="definition">definition</option>
+                    <option value="process">process</option>
+                    <option value="comparison">comparison</option>
+                    <option value="example">example</option>
+                    <option value="formula">formula</option>
+                  </select>
                   <input
                     value={railCardEditForm.tags}
                     onChange={(event) =>
@@ -2620,12 +2849,12 @@ function App() {
                     placeholder="Tags, comma separated"
                   />
                   <select
-                    value={railCardEditForm.review_state}
+                    value={railCardEditForm.content_status}
                     onChange={(event) =>
                       setRailCardEditForm({
                         ...railCardEditForm,
-                        review_state: event.target.value as
-                          CardReviewState,
+                        content_status: event.target.value as
+                          CardContentStatus,
                       })
                     }
                   >
@@ -2649,6 +2878,12 @@ function App() {
                         Open video
                       </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => openStudyCard(selectedRailCard.id)}
+                    >
+                      Study concept
+                    </button>
                   </div>
                 </div>
                 <ClaimsBlock
@@ -2656,6 +2891,7 @@ function App() {
                   unsupportedTerms={selectedRailCard.unsupported_terms}
                   onJumpToTime={jumpToTime}
                 />
+                {renderReviewItems(selectedRailCard)}
                 {renderCardNotes(selectedRailCard)}
               </div>
             )}
@@ -2780,6 +3016,8 @@ function App() {
 
     void loadJobs(selectedCourseId)
     void loadCourseCardIndex(selectedCourseId)
+    // Course selection is the workflow trigger; loader identities are not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCourseId])
 
   useEffect(() => {
@@ -2790,6 +3028,8 @@ function App() {
     }
 
     void openRailCard(cardId)
+    // URL card synchronization intentionally follows course changes only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCourseId])
 
   useEffect(() => {
@@ -2868,6 +3108,8 @@ function App() {
     }, 1500)
 
     return () => window.clearInterval(intervalId)
+    // Polling is recreated only when the active run or job changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoGenerationRun, job])
 
   useEffect(() => {
@@ -2896,6 +3138,8 @@ function App() {
     }, 1500)
 
     return () => window.clearInterval(intervalId)
+    // Job polling is keyed by the current job and owns its interval cleanup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job])
 
   useEffect(() => {
@@ -3444,24 +3688,22 @@ function App() {
                               })
                             }
                           />
-                          <input
-                            value={cardEditForm.question}
+                          <select
+                            value={cardEditForm.card_kind}
                             onChange={(event) =>
                               setCardEditForm({
                                 ...cardEditForm,
-                                question: event.target.value,
+                                card_kind: event.target.value as CardKind,
                               })
                             }
-                          />
-                          <input
-                            value={cardEditForm.answer}
-                            onChange={(event) =>
-                              setCardEditForm({
-                                ...cardEditForm,
-                                answer: event.target.value,
-                              })
-                            }
-                          />
+                          >
+                            <option value="concept">concept</option>
+                            <option value="definition">definition</option>
+                            <option value="process">process</option>
+                            <option value="comparison">comparison</option>
+                            <option value="example">example</option>
+                            <option value="formula">formula</option>
+                          </select>
                           <input
                             value={cardEditForm.tags}
                             onChange={(event) =>
@@ -3473,12 +3715,12 @@ function App() {
                             placeholder="Tags, comma separated"
                           />
                           <select
-                            value={cardEditForm.review_state}
+                            value={cardEditForm.content_status}
                             onChange={(event) =>
                               setCardEditForm({
                                 ...cardEditForm,
-                                review_state: event.target.value as
-                                  CardReviewState,
+                                content_status: event.target.value as
+                                  CardContentStatus,
                               })
                             }
                           >
@@ -3487,6 +3729,12 @@ function App() {
                             <option value="needs_fix">needs fix</option>
                           </select>
                           <div className="card-actions">
+                            <button
+                              type="button"
+                              onClick={() => openStudyCard(card.id)}
+                            >
+                              Study concept
+                            </button>
                             <button
                               type="button"
                               disabled={isSavingCard}
@@ -3513,7 +3761,8 @@ function App() {
                               <span className="card-status saved">
                                 Saved
                               </span>
-                              <span>{card.review_state}</span>
+                              <span>{card.content_status}</span>
+                              <span>{card.card_kind}</span>
                             </div>
                           </div>
                           {card.tags.length > 0 && (
@@ -3534,12 +3783,7 @@ function App() {
                             unsupportedTerms={card.unsupported_terms}
                             onJumpToTime={jumpToTime}
                           />
-                          {(card.question || card.answer) && (
-                            <div className="qa-block">
-                              {card.question && <strong>{card.question}</strong>}
-                              {card.answer && <p>{card.answer}</p>}
-                            </div>
-                          )}
+                          {renderReviewItems(card)}
                           <button
                             type="button"
                             className="source-range source-jump"
@@ -3841,6 +4085,46 @@ function App() {
       </section>
       {renderCourseCardRail()}
     </main>
+      ) : appView === 'course-map' ? (
+        <main className="course-map-shell">
+          <CourseMapView
+            apiBaseUrl={API_BASE_URL}
+            courses={courses}
+            selectedCourseId={selectedCourseId}
+            selectedModel={selectedModel}
+            initialCardId={
+              selectedRailCard?.id ??
+              new URL(window.location.href).searchParams.get('card')
+            }
+            onSelectCourse={selectCourse}
+            onOpenWorkspaceCard={openWorkspaceCard}
+            onOpenStudyCard={openStudyCard}
+          />
+        </main>
+      ) : appView === 'study' ? (
+        <main className="study-shell">
+          <Suspense fallback={<div className="study-empty">Loading study workspace</div>}>
+            <StudyView
+              apiBaseUrl={API_BASE_URL}
+              courses={courses}
+              selectedCourseId={selectedCourseId}
+              selectedModel={selectedModel}
+              initialCardId={new URL(window.location.href).searchParams.get('card')}
+              initialDocumentId={new URL(window.location.href).searchParams.get('document')}
+              onSelectCourse={selectCourse}
+            />
+          </Suspense>
+        </main>
+      ) : appView === 'review' ? (
+        <main className="review-shell">
+          <ReviewView
+            apiBaseUrl={API_BASE_URL}
+            courses={courses}
+            selectedCourseId={selectedCourseId}
+            onSelectCourse={selectCourse}
+            onOpenWorkspaceCard={openWorkspaceCard}
+          />
+        </main>
       ) : (
         <main className="graph-shell">
           <GraphView

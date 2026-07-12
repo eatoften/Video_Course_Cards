@@ -1,7 +1,9 @@
+import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from uuid import uuid4
 
 from .course import DEFAULT_COURSE_ID, DEFAULT_COURSE_TITLE
 from .settings import get_app_path_settings
@@ -30,21 +32,224 @@ KNOWLEDGE_CARD_CORE_COLUMNS = {
     "key_points",
     "claims",
     "unsupported_terms",
-    "question",
-    "answer",
-    "difficulty",
+    "card_kind",
     "source_start_seconds",
     "source_end_seconds",
     "provider",
     "model",
     "created_at",
     "updated_at",
+    "tags",
+    "content_status",
 }
 
-KNOWLEDGE_CARD_ADDED_COLUMNS: dict[str, str] = {
-    "tags": "TEXT NOT NULL DEFAULT '[]'",
-    "review_state": "TEXT NOT NULL DEFAULT 'draft'",
-}
+
+def _create_knowledge_cards_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS knowledge_cards (
+            id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL,
+            card_kind TEXT NOT NULL DEFAULT 'concept',
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            key_points TEXT NOT NULL,
+            claims TEXT NOT NULL,
+            unsupported_terms TEXT NOT NULL,
+            tags TEXT NOT NULL DEFAULT '[]',
+            content_status TEXT NOT NULL DEFAULT 'draft',
+            source_start_seconds REAL NOT NULL,
+            source_end_seconds REAL NOT NULL,
+            provider TEXT,
+            model TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+def _create_review_items_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS review_items (
+            id TEXT PRIMARY KEY,
+            card_id TEXT NOT NULL,
+            item_type TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            expected_answer TEXT NOT NULL,
+            source_claim_ids TEXT NOT NULL DEFAULT '[]',
+            source TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_review_items_card_id
+        ON review_items (card_id)
+        """
+    )
+
+
+def _create_review_schedule_tables(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS review_progress (
+            review_item_id TEXT PRIMARY KEY,
+            fsrs_card_id INTEGER NOT NULL,
+            fsrs_state INTEGER NOT NULL,
+            step INTEGER,
+            due_at TEXT NOT NULL,
+            stability REAL,
+            fsrs_difficulty REAL,
+            last_reviewed_at TEXT,
+            review_count INTEGER NOT NULL,
+            lapse_count INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_review_progress_due_at
+        ON review_progress (due_at)
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS review_events (
+            id TEXT PRIMARY KEY,
+            review_item_id TEXT NOT NULL,
+            rating TEXT NOT NULL,
+            reviewed_at TEXT NOT NULL,
+            response_time_ms INTEGER,
+            previous_phase TEXT NOT NULL,
+            next_phase TEXT NOT NULL,
+            due_before TEXT NOT NULL,
+            due_after TEXT NOT NULL,
+            scheduled_days REAL NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_review_events_item_time
+        ON review_events (review_item_id, reviewed_at)
+        """
+    )
+def _migrate_knowledge_cards_to_v2(
+    conn: sqlite3.Connection,
+    existing_columns: set[str],
+) -> None:
+    required_legacy_columns = {
+        "id",
+        "job_id",
+        "title",
+        "summary",
+        "key_points",
+        "claims",
+        "unsupported_terms",
+        "source_start_seconds",
+        "source_end_seconds",
+        "created_at",
+        "updated_at",
+    }
+
+    if not required_legacy_columns.issubset(existing_columns):
+        conn.execute("DROP TABLE knowledge_cards")
+        _create_knowledge_cards_table(conn)
+        return
+
+    conn.execute("DROP INDEX IF EXISTS idx_knowledge_cards_job_id")
+    conn.execute("ALTER TABLE knowledge_cards RENAME TO knowledge_cards_legacy")
+    _create_knowledge_cards_table(conn)
+
+    card_kind_expr = "card_kind" if "card_kind" in existing_columns else "'concept'"
+    tags_expr = "tags" if "tags" in existing_columns else "'[]'"
+    provider_expr = "provider" if "provider" in existing_columns else "NULL"
+    model_expr = "model" if "model" in existing_columns else "NULL"
+    if "content_status" in existing_columns:
+        content_status_expr = "content_status"
+    elif "review_state" in existing_columns:
+        content_status_expr = "review_state"
+    else:
+        content_status_expr = "'draft'"
+
+    conn.execute(
+        f"""
+        INSERT INTO knowledge_cards (
+            id, job_id, card_kind, title, summary, key_points, claims,
+            unsupported_terms, tags, content_status, source_start_seconds,
+            source_end_seconds, provider, model, created_at, updated_at
+        )
+        SELECT
+            id, job_id, {card_kind_expr}, title, summary, key_points, claims,
+            unsupported_terms, {tags_expr}, {content_status_expr},
+            source_start_seconds, source_end_seconds, {provider_expr},
+            {model_expr},
+            created_at, updated_at
+        FROM knowledge_cards_legacy
+        """
+    )
+
+    if {"question", "answer"}.issubset(existing_columns):
+        conn.execute(
+            """
+            INSERT INTO review_items (
+                id, card_id, item_type, prompt, expected_answer,
+                source_claim_ids, source, status, created_at, updated_at
+            )
+            SELECT
+                lower(hex(randomblob(16))), id, 'basic', trim(question),
+                trim(answer), '[]', 'generated', 'active', created_at,
+                updated_at
+            FROM knowledge_cards_legacy
+            WHERE question IS NOT NULL AND trim(question) != ''
+              AND answer IS NOT NULL AND trim(answer) != ''
+            """
+        )
+
+    conn.execute("DROP TABLE knowledge_cards_legacy")
+
+
+def _ensure_claim_and_evidence_ids(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("SELECT id, claims FROM knowledge_cards").fetchall()
+
+    for row in rows:
+        try:
+            claims = json.loads(row["claims"])
+        except (TypeError, json.JSONDecodeError):
+            continue
+
+        if not isinstance(claims, list):
+            continue
+
+        changed = False
+        for claim in claims:
+            if not isinstance(claim, dict):
+                continue
+            if not str(claim.get("id", "")).strip():
+                claim["id"] = uuid4().hex
+                changed = True
+            evidence_items = claim.get("evidence")
+            if not isinstance(evidence_items, list):
+                continue
+            for evidence in evidence_items:
+                if not isinstance(evidence, dict):
+                    continue
+                if not str(evidence.get("id", "")).strip():
+                    evidence["id"] = uuid4().hex
+                    changed = True
+
+        if changed:
+            conn.execute(
+                "UPDATE knowledge_cards SET claims = ? WHERE id = ?",
+                (json.dumps(claims, ensure_ascii=False), row["id"]),
+            )
 
 
 def configure_db(db_path: Path) -> None:
@@ -167,57 +372,20 @@ def init_db() -> None:
             """
         )
 
+        _create_review_items_table(conn)
+        _create_review_schedule_tables(conn)
+
         existing_card_columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(knowledge_cards)")
         }
 
-        if (
+        if existing_card_columns and not KNOWLEDGE_CARD_CORE_COLUMNS.issubset(
             existing_card_columns
-            and not KNOWLEDGE_CARD_CORE_COLUMNS.issubset(
-                existing_card_columns
-            )
         ):
-            conn.execute("DROP TABLE IF EXISTS card_embeddings")
-            conn.execute("DROP TABLE knowledge_cards")
-            existing_card_columns = set()
-
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS knowledge_cards (
-                id TEXT PRIMARY KEY,
-                job_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                key_points TEXT NOT NULL,
-                claims TEXT NOT NULL,
-                unsupported_terms TEXT NOT NULL,
-                question TEXT,
-                answer TEXT,
-                difficulty TEXT NOT NULL,
-                tags TEXT NOT NULL DEFAULT '[]',
-                review_state TEXT NOT NULL DEFAULT 'draft',
-                source_start_seconds REAL NOT NULL,
-                source_end_seconds REAL NOT NULL,
-                provider TEXT,
-                model TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-            """
-        )
-
-        existing_card_columns = {
-            row["name"]
-            for row in conn.execute("PRAGMA table_info(knowledge_cards)")
-        }
-
-        for column_name, column_type in KNOWLEDGE_CARD_ADDED_COLUMNS.items():
-            if column_name not in existing_card_columns:
-                conn.execute(
-                    "ALTER TABLE knowledge_cards "
-                    f"ADD COLUMN {column_name} {column_type}"
-                )
+            _migrate_knowledge_cards_to_v2(conn, existing_card_columns)
+        else:
+            _create_knowledge_cards_table(conn)
 
         conn.execute(
             """
@@ -230,10 +398,12 @@ def init_db() -> None:
         conn.execute(
             """
             UPDATE knowledge_cards
-            SET review_state = 'draft'
-            WHERE review_state IS NULL OR trim(review_state) = ''
+            SET content_status = 'draft'
+            WHERE content_status IS NULL OR trim(content_status) = ''
             """
         )
+
+        _ensure_claim_and_evidence_ids(conn)
 
         conn.execute(
             """
@@ -300,6 +470,90 @@ def init_db() -> None:
 
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS topics (
+                id TEXT PRIMARY KEY,
+                course_id TEXT NOT NULL,
+                parent_topic_id TEXT,
+                title TEXT NOT NULL,
+                summary TEXT,
+                position INTEGER NOT NULL,
+                depth INTEGER NOT NULL,
+                method TEXT NOT NULL,
+                status TEXT NOT NULL,
+                is_system INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_topics_course_parent
+            ON topics (course_id, parent_topic_id, position)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS topic_card_memberships (
+                id TEXT PRIMARY KEY,
+                topic_id TEXT NOT NULL,
+                card_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                method TEXT NOT NULL,
+                confidence REAL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_topic_card_unique
+            ON topic_card_memberships (topic_id, card_id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_topic_card_primary
+            ON topic_card_memberships (card_id)
+            WHERE role = 'primary' AND status = 'accepted'
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS topic_relations (
+                id TEXT PRIMARY KEY,
+                course_id TEXT NOT NULL,
+                source_topic_id TEXT NOT NULL,
+                target_topic_id TEXT NOT NULL,
+                relation_type TEXT NOT NULL,
+                explanation TEXT,
+                method TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_topic_relation_unique
+            ON topic_relations (
+                source_topic_id, target_topic_id, relation_type, method
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_topic_relations_course
+            ON topic_relations (course_id)
+            """
+        )
+
+        conn.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_card_relations_course_id
             ON card_relations (course_id)
             """
@@ -329,6 +583,144 @@ def init_db() -> None:
                 relation_type,
                 method
             )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS source_assets (
+                id TEXT PRIMARY KEY,
+                course_id TEXT NOT NULL,
+                job_id TEXT,
+                asset_type TEXT NOT NULL,
+                original_filename TEXT NOT NULL,
+                stored_path TEXT NOT NULL,
+                mime_type TEXT,
+                size_bytes INTEGER NOT NULL,
+                sha256 TEXT NOT NULL,
+                extraction_status TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_source_assets_course
+            ON source_assets (course_id, created_at)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS source_units (
+                id TEXT PRIMARY KEY,
+                asset_id TEXT NOT NULL,
+                unit_type TEXT NOT NULL,
+                ordinal INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                locator_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_source_units_asset_ordinal
+            ON source_units (asset_id, ordinal)
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS learning_documents (
+                id TEXT PRIMARY KEY,
+                course_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                body_markdown TEXT NOT NULL,
+                status TEXT NOT NULL,
+                generation_mode TEXT NOT NULL,
+                provider TEXT,
+                model TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_learning_documents_course
+            ON learning_documents (course_id, updated_at)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS learning_document_cards (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                card_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_learning_document_card_unique
+            ON learning_document_cards (document_id, card_id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_learning_document_cards_card
+            ON learning_document_cards (card_id, document_id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS learning_document_sources (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                card_id TEXT,
+                label TEXT NOT NULL,
+                quote TEXT NOT NULL,
+                locator_json TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_learning_document_sources_document
+            ON learning_document_sources (document_id, position)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS learning_document_versions (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                version_number INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                body_markdown TEXT NOT NULL,
+                change_source TEXT NOT NULL,
+                provider TEXT,
+                model TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_learning_document_version
+            ON learning_document_versions (document_id, version_number)
             """
         )
 

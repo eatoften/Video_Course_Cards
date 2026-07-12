@@ -674,7 +674,7 @@ export function GraphView({
                   <strong>{card.title}</strong>
                   <span>{card.summary}</span>
                   <small>
-                    {formatTime(card.source_start_seconds)} · {card.review_state}
+                    {formatTime(card.source_start_seconds)} · {card.content_status}
                   </small>
                 </button>
               ))
@@ -708,8 +708,8 @@ export function GraphView({
                 nodeColor={(node) => {
                   const card = node as CardGraphNode
                   if (card.id === selectedCardId) return '#c44b2d'
-                  if (card.review_state === 'reviewed') return '#2f6f62'
-                  if (card.review_state === 'needs_fix') return '#b87923'
+                  if (card.content_status === 'reviewed') return '#2f6f62'
+                  if (card.content_status === 'needs_fix') return '#b87923'
                   return '#4c6173'
                 }}
                 nodeVal={(node) =>
@@ -756,7 +756,7 @@ export function GraphView({
                 <h2>{selectedCard.title}</h2>
                 <p>{selectedCard.summary}</p>
                 <div className="graph-card-meta">
-                  <span>{selectedCard.review_state}</span>
+                  <span>{selectedCard.content_status}</span>
                   <span>
                     {formatTime(selectedCard.source_start_seconds)} -{' '}
                     {formatTime(selectedCard.source_end_seconds)}

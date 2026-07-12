@@ -203,9 +203,10 @@ def test_list_course_card_index_includes_note_counts(tmp_path):
     assert item["job_id"] == course_job.id
     assert item["title"] == "Matrix Factorization"
     assert item["summary"] == "SVD factors a matrix into structured pieces."
-    assert item["difficulty"] == "medium"
+    assert item["card_kind"] == "concept"
     assert item["tags"] == []
-    assert item["review_state"] == "draft"
+    assert item["content_status"] == "draft"
+    assert item["review_item_count"] == 0
     assert item["source_video"] == course_job.id
     assert item["source_start_seconds"] == 1.0
     assert item["source_end_seconds"] == 2.0

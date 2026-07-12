@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 from .job import utc_now
-from .knowledge_card import KnowledgeCardReviewState
+from .knowledge_card import KnowledgeCardContentStatus
 
 
 CardRelationType = Literal[
@@ -132,7 +132,7 @@ class RelatedCard(BaseModel):
     title: str
     summary: str
     tags: list[str] = Field(default_factory=list)
-    review_state: KnowledgeCardReviewState
+    content_status: KnowledgeCardContentStatus
     relation_type: CardRelationType
     score: float = Field(ge=-1.0, le=1.0)
     method: CardRelationMethod
@@ -153,7 +153,7 @@ class CardRelationGraphNode(BaseModel):
     title: str
     summary: str
     tags: list[str] = Field(default_factory=list)
-    review_state: KnowledgeCardReviewState
+    content_status: KnowledgeCardContentStatus
     source_start_seconds: float = Field(ge=0)
     source_end_seconds: float = Field(ge=0)
 

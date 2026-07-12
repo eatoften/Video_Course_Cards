@@ -243,36 +243,18 @@ def test_draft_cards_returns_structured_cards(monkeypatch, tmp_path):
             )
         )
     )
-    assert data["cards"] == [
-        {
-            "title": "Learning Rate",
-            "summary": "The learning rate controls update size.",
-            "key_points": [
-                "It affects each parameter update.",
-                "Too large a value can overshoot.",
-            ],
-            "claims": [
-                {
-                    "text": "The learning rate controls update size.",
-                    "evidence": [
-                        {
-                            "quote": (
-                                "The learning rate controls update size."
-                            ),
-                            "segment_start_seconds": 4.0,
-                            "segment_end_seconds": 8.0,
-                        }
-                    ],
-                }
-            ],
-            "unsupported_terms": [],
-            "question": "What does the learning rate control?",
-            "answer": "It controls the size of parameter updates.",
-            "difficulty": "easy",
-            "source_start_seconds": 4.0,
-            "source_end_seconds": 8.0,
-        }
-    ]
+    card = data["cards"][0]
+    assert card["title"] == "Learning Rate"
+    assert card["summary"] == "The learning rate controls update size."
+    assert card["claims"][0]["id"]
+    assert card["claims"][0]["text"] == (
+        "The learning rate controls update size."
+    )
+    assert card["claims"][0]["evidence"][0]["id"]
+    assert card["claims"][0]["evidence"][0]["segment_start_seconds"] == 4.0
+    assert card["question"] == "What does the learning rate control?"
+    assert card["answer"] == "It controls the size of parameter updates."
+    assert "difficulty" not in card
     assert len(fake_client.calls) == 1
     assert "/no_think" in fake_client.calls[0][1].content
     assert fake_client.requested_models == ["qwen3:8b"]
