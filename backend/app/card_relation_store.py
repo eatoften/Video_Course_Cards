@@ -89,6 +89,31 @@ def upsert_card_relations(relations: list[CardRelation]) -> None:
         )
 
 
+def create_card_relation(relation: CardRelation) -> None:
+    ensure_db()
+
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO card_relations (
+                id,
+                course_id,
+                source_card_id,
+                target_card_id,
+                relation_type,
+                score,
+                method,
+                model,
+                explanation,
+                status,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            _relation_to_params(relation),
+        )
+
+
 def replace_suggested_relations_for_course(
     course_id: str,
     relations: list[CardRelation],
@@ -153,6 +178,38 @@ def get_card_relation(relation_id: str) -> CardRelation | None:
         row = conn.execute(
             "SELECT * FROM card_relations WHERE id = ?",
             (relation_id,),
+        ).fetchone()
+
+    if row is None:
+        return None
+
+    return _row_to_relation(row)
+
+
+def get_card_relation_by_identity(
+    source_card_id: str,
+    target_card_id: str,
+    relation_type: str,
+    method: str,
+) -> CardRelation | None:
+    ensure_db()
+
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM card_relations
+            WHERE source_card_id = ?
+              AND target_card_id = ?
+              AND relation_type = ?
+              AND method = ?
+            """,
+            (
+                source_card_id,
+                target_card_id,
+                relation_type,
+                method,
+            ),
         ).fetchone()
 
     if row is None:

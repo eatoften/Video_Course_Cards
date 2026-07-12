@@ -6,9 +6,27 @@ from app.card_embedding_store import upsert_card_embeddings
 from app.course import DEFAULT_COURSE_ID
 from app.job import VideoJob, VideoJobStatus
 from app.job_store import create_job
+from app.settings import LLMSettings
 
 
 client = TestClient(main.app)
+
+
+class FakeRelationLLMClient:
+    def __init__(self, output: str) -> None:
+        self.output = output
+        self.settings = LLMSettings(
+            provider="ollama",
+            base_url="http://127.0.0.1:11434/v1",
+            api_key="ollama",
+            model="qwen3:4b",
+            timeout_seconds=30,
+            temperature=0.0,
+            max_tokens=2048,
+        )
+
+    def create_chat_completion(self, messages, **kwargs) -> str:
+        return self.output
 
 
 def create_uploaded_job(tmp_path, job_id: str = "job-123") -> VideoJob:
@@ -180,3 +198,86 @@ def test_related_cards_returns_404_for_missing_card():
     assert response.json() == {
         "detail": "Knowledge card not found."
     }
+
+
+def test_create_manual_relation_and_reject_duplicate(tmp_path):
+    job = create_uploaded_job(tmp_path)
+    source_card = save_card(job.id, "Convolution")
+    target_card = save_card(job.id, "Image Filter")
+    payload = {
+        "source_card_id": source_card["id"],
+        "target_card_id": target_card["id"],
+        "relation_type": "example_of",
+        "explanation": "Convolution applies an image filter.",
+    }
+
+    response = client.post(
+        f"/courses/{DEFAULT_COURSE_ID}/card-relations",
+        json=payload,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["method"] == "manual"
+    assert response.json()["status"] == "accepted"
+    assert response.json()["score"] == 1.0
+
+    duplicate_response = client.post(
+        f"/courses/{DEFAULT_COURSE_ID}/card-relations",
+        json=payload,
+    )
+
+    assert duplicate_response.status_code == 400
+    assert duplicate_response.json() == {
+        "detail": "This manual card relation already exists."
+    }
+
+
+def test_classify_similarity_relation_with_local_llm(tmp_path, monkeypatch):
+    job = create_uploaded_job(tmp_path)
+    source_card = save_card(job.id, "Linear Algebra")
+    target_card = save_card(job.id, "Singular Value Decomposition")
+    upsert_card_embeddings(
+        [
+            make_embedding(source_card["id"], [1.0, 0.0]),
+            make_embedding(target_card["id"], [0.9, 0.1]),
+        ]
+    )
+    client.post(
+        f"/courses/{DEFAULT_COURSE_ID}/card-relations/recompute",
+        json={"threshold": 0.7, "top_k": 1},
+    )
+    graph = client.get(
+        f"/courses/{DEFAULT_COURSE_ID}/card-relations"
+    ).json()
+    source_relation = next(
+        edge
+        for edge in graph["edges"]
+        if edge["source"] == source_card["id"]
+    )
+    fake_client = FakeRelationLLMClient(
+        '{"relation_type":"prerequisite",'
+        '"explanation":"Linear algebra is needed before studying SVD."}'
+    )
+    monkeypatch.setattr(main, "get_llm_client", lambda: fake_client)
+
+    response = client.post(
+        f"/card-relations/{source_relation['id']}/classify",
+        json={"model": "qwen3:4b"},
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["classification"] == "prerequisite"
+    assert result["relation"]["method"] == "local_llm"
+    assert result["relation"]["status"] == "suggested"
+
+    updated_graph = client.get(
+        f"/courses/{DEFAULT_COURSE_ID}/card-relations"
+    ).json()
+    edges_by_id = {edge["id"]: edge for edge in updated_graph["edges"]}
+    assert edges_by_id[source_relation["id"]]["status"] == "hidden"
+    assert any(
+        edge["relation_type"] == "prerequisite"
+        and edge["method"] == "local_llm"
+        for edge in updated_graph["edges"]
+    )

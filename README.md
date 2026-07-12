@@ -64,6 +64,10 @@ It can:
 - save, edit, delete, tag, and review cards;
 - attach user notes to cards;
 - embed cards and run dense card retrieval;
+- compute and persist related-card edges with cosine similarity;
+- explore cards in an interactive course graph;
+- accept, reject, hide, edit, or manually add card relations;
+- use local Qwen to classify candidate relations;
 - export one job or all cards as Markdown folders;
 - check local runtime dependencies such as FFmpeg, Ollama/Qwen, and embedding models.
 
@@ -274,6 +278,10 @@ Selected endpoints:
 | `PATCH /cards/{card_id}` | edit a saved card |
 | `POST /cards/{card_id}/embedding` | embed one card |
 | `POST /courses/{course_id}/card-embeddings` | embed all cards in a course |
+| `POST /courses/{course_id}/card-relations/recompute` | persist top-k cosine similarity relations |
+| `GET /courses/{course_id}/card-relations` | return graph nodes and relation edges |
+| `POST /courses/{course_id}/card-relations` | create a manual typed relation |
+| `POST /card-relations/{relation_id}/classify` | classify a relation with local Qwen |
 | `POST /rag/retrieve` | retrieve relevant cards for a question |
 | `POST /jobs/{job_id}/cards/export/markdown/folder` | export one job as Markdown |
 | `POST /cards/export/markdown/folder` | export all cards as Markdown |

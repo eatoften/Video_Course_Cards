@@ -28,6 +28,21 @@ CardRelationStatus = Literal[
     "rejected",
     "hidden",
 ]
+CardRelationSemanticType = Literal[
+    "prerequisite",
+    "related",
+    "example_of",
+    "contrast_with",
+    "part_of",
+]
+CardRelationClassification = Literal[
+    "prerequisite",
+    "related",
+    "example_of",
+    "contrast_with",
+    "part_of",
+    "unclear",
+]
 
 DEFAULT_CARD_RELATION_TYPE: CardRelationType = "semantic_similarity"
 DEFAULT_CARD_RELATION_METHOD: CardRelationMethod = "cosine_similarity"
@@ -62,6 +77,33 @@ class CardRelationUpdate(BaseModel):
     relation_type: CardRelationType | None = None
     explanation: str | None = None
     status: CardRelationStatus | None = None
+
+
+class CardRelationCreate(BaseModel):
+    source_card_id: str = Field(min_length=1)
+    target_card_id: str = Field(min_length=1)
+    relation_type: CardRelationSemanticType
+    explanation: str | None = Field(default=None, max_length=2000)
+    status: CardRelationStatus = "accepted"
+
+    @model_validator(mode="after")
+    def validate_distinct_cards(self) -> "CardRelationCreate":
+        if self.source_card_id == self.target_card_id:
+            raise ValueError("Card relation cannot point to itself.")
+
+        return self
+
+
+class CardRelationClassifyRequest(BaseModel):
+    model: str | None = Field(default=None, max_length=200)
+
+
+class CardRelationClassificationResult(BaseModel):
+    source_relation_id: str
+    classification: CardRelationClassification
+    explanation: str
+    model: str
+    relation: CardRelation | None = None
 
 
 class CardRelationRecomputeRequest(BaseModel):

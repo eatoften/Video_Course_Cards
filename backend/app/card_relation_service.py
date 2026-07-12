@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlite3 import IntegrityError
 from uuid import uuid4
 
 from . import course_service
@@ -7,6 +8,9 @@ from .card_embedding_store import list_card_embeddings_for_course
 from .card_relation import (
     CardRelatedCardsResponse,
     CardRelation,
+    CardRelationClassificationResult,
+    CardRelationClassifyRequest,
+    CardRelationCreate,
     CardRelationGraphEdge,
     CardRelationGraphNode,
     CardRelationRecomputeRequest,
@@ -18,13 +22,23 @@ from .card_relation import (
     DEFAULT_CARD_RELATION_TYPE,
     RelatedCard,
 )
+from .card_relation_classifier import (
+    RelationClassificationError,
+    RelationClassificationOutputError,
+    RelationClassificationTimeoutError,
+    RelationClassifierClient,
+    classify_card_relation,
+)
 from .card_relation_store import (
+    create_card_relation,
     delete_card_relation,
     get_card_relation,
+    get_card_relation_by_identity,
     list_card_relations_for_course,
     list_related_card_relations,
     replace_suggested_relations_for_course,
     update_card_relation,
+    upsert_card_relations,
 )
 from .card_similarity import build_similarity_candidates
 from .job import utc_now
@@ -48,6 +62,16 @@ class CardRelationCardNotFoundError(CardRelationServiceError):
 
 
 class InvalidCardRelationRequestError(CardRelationServiceError):
+    pass
+
+
+class CardRelationClassificationError(CardRelationServiceError):
+    pass
+
+
+class CardRelationClassificationTimeoutError(
+    CardRelationClassificationError
+):
     pass
 
 
@@ -120,8 +144,7 @@ def get_course_card_relations_graph(
     relations = [
         relation
         for relation in list_card_relations_for_course(course.id)
-        if _is_visible_relation(relation)
-        and relation.source_card_id in cards_by_id
+        if relation.source_card_id in cards_by_id
         and relation.target_card_id in cards_by_id
     ]
 
@@ -135,6 +158,132 @@ def get_course_card_relations_graph(
             _relation_to_graph_edge(relation)
             for relation in relations
         ],
+    )
+
+
+def create_manual_card_relation(
+    course_id: str,
+    request: CardRelationCreate,
+) -> CardRelation:
+    course = course_service.get_video_course(course_id)
+    cards_by_id = {
+        card.id: card
+        for card in list_cards_for_course(course.id)
+    }
+    _require_course_card(request.source_card_id, cards_by_id)
+    _require_course_card(request.target_card_id, cards_by_id)
+    now = utc_now()
+    relation = CardRelation(
+        id=uuid4().hex,
+        course_id=course.id,
+        source_card_id=request.source_card_id,
+        target_card_id=request.target_card_id,
+        relation_type=request.relation_type,
+        score=1.0,
+        method="manual",
+        explanation=_clean_explanation(request.explanation),
+        status=request.status,
+        created_at=now,
+        updated_at=now,
+    )
+
+    try:
+        create_card_relation(relation)
+    except IntegrityError as exc:
+        raise InvalidCardRelationRequestError(
+            "This manual card relation already exists."
+        ) from exc
+
+    return relation
+
+
+def classify_saved_card_relation(
+    relation_id: str,
+    request: CardRelationClassifyRequest,
+    *,
+    llm_client: RelationClassifierClient,
+) -> CardRelationClassificationResult:
+    source_relation = get_card_relation(relation_id)
+
+    if source_relation is None:
+        raise CardRelationNotFoundError("Card relation not found.")
+
+    source_card = get_card(source_relation.source_card_id)
+    target_card = get_card(source_relation.target_card_id)
+
+    if source_card is None or target_card is None:
+        raise CardRelationCardNotFoundError(
+            "A card referenced by this relation no longer exists."
+        )
+
+    try:
+        classification = classify_card_relation(
+            source_card,
+            target_card,
+            llm_client=llm_client,
+            model=request.model,
+        )
+    except RelationClassificationTimeoutError as exc:
+        raise CardRelationClassificationTimeoutError(str(exc)) from exc
+    except (
+        RelationClassificationOutputError,
+        RelationClassificationError,
+    ) as exc:
+        raise CardRelationClassificationError(str(exc)) from exc
+
+    selected_model = (
+        request.model.strip()
+        if request.model and request.model.strip()
+        else llm_client.settings.model
+    )
+
+    if classification.relation_type == "unclear":
+        return CardRelationClassificationResult(
+            source_relation_id=source_relation.id,
+            classification="unclear",
+            explanation=classification.explanation,
+            model=selected_model,
+        )
+
+    now = utc_now()
+    classified_relation = CardRelation(
+        id=uuid4().hex,
+        course_id=source_relation.course_id,
+        source_card_id=source_relation.source_card_id,
+        target_card_id=source_relation.target_card_id,
+        relation_type=classification.relation_type,
+        score=source_relation.score,
+        method="local_llm",
+        model=selected_model,
+        explanation=classification.explanation,
+        status="suggested",
+        created_at=now,
+        updated_at=now,
+    )
+    upsert_card_relations([classified_relation])
+    stored_relation = get_card_relation_by_identity(
+        classified_relation.source_card_id,
+        classified_relation.target_card_id,
+        classified_relation.relation_type,
+        classified_relation.method,
+    )
+
+    if stored_relation is None:
+        raise CardRelationClassificationError(
+            "Classified relation could not be saved."
+        )
+
+    if source_relation.method == "cosine_similarity":
+        source_relation.status = "hidden"
+        source_relation.updated_at = now
+        update_card_relation(source_relation)
+
+    return CardRelationClassificationResult(
+        source_relation_id=source_relation.id,
+        classification=classification.relation_type,
+        explanation=classification.explanation,
+        model=selected_model,
+        relation=stored_relation,
     )
 
 
@@ -227,6 +376,28 @@ def delete_saved_card_relation(relation_id: str) -> None:
 
 def _is_visible_relation(relation: CardRelation) -> bool:
     return relation.status in VISIBLE_RELATION_STATUSES
+
+
+def _require_course_card(
+    card_id: str,
+    cards_by_id: dict[str, KnowledgeCard],
+) -> KnowledgeCard:
+    card = cards_by_id.get(card_id)
+
+    if card is None:
+        raise CardRelationCardNotFoundError(
+            "Both cards must exist in the selected course."
+        )
+
+    return card
+
+
+def _clean_explanation(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    cleaned = value.strip()
+    return cleaned or None
 
 
 def _card_to_graph_node(card: KnowledgeCard) -> CardRelationGraphNode:

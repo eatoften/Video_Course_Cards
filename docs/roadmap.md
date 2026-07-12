@@ -1,6 +1,6 @@
 # Video Course Cards Roadmap
 
-Last updated: 2026-07-07
+Last updated: 2026-07-11
 
 ## Product Direction
 
@@ -53,6 +53,10 @@ The project already has a working local demo:
 - Card editing, deletion, tags, review state, and user notes.
 - Card embeddings.
 - Basic card-based dense retrieval.
+- Persistent card relations generated from cosine similarity.
+- Obsidian-like Workspace and Graph views.
+- Interactive course graph with relation review and manual editing.
+- Local Qwen-assisted relation typing.
 - Markdown folder export.
 
 Current product capability:
@@ -238,7 +242,7 @@ This is intentionally not yet full GraphRAG. First we need a durable relation
 layer that can be inspected, updated, filtered, and later improved by user
 feedback or LLM relation extraction.
 
-## Milestone 16: Card Relations Table
+## Milestone 16: Card Relations Table (Completed)
 
 Problem:
 
@@ -250,7 +254,7 @@ Goal:
 
 Add a persistent `card_relations` table as the first real knowledge-graph layer.
 
-Planned schema:
+Implemented schema:
 
 ```sql
 CREATE TABLE IF NOT EXISTS card_relations (
@@ -363,7 +367,7 @@ Knowledge to learn:
 - Idempotent recomputation.
 - Separating algorithm code from persistence code.
 
-## Milestone 17: Relation Generation From Card Embeddings
+## Milestone 17: Relation Generation From Card Embeddings (Completed)
 
 Problem:
 
@@ -482,7 +486,7 @@ Knowledge to learn:
 - Graph edge persistence.
 - Relation recomputation policies.
 
-## Milestone 18: Left Sidebar And Multi-View Frontend
+## Milestone 18: Left Sidebar And Multi-View Frontend (Completed)
 
 Problem:
 
@@ -555,7 +559,7 @@ Knowledge to learn:
 - Multi-view application layout.
 - Incremental frontend refactoring.
 
-## Milestone 19: Graph View Version 1
+## Milestone 19: Graph View Version 1 (Completed)
 
 Problem:
 
@@ -613,7 +617,7 @@ Knowledge to learn:
 - React list/detail patterns.
 - Filtering persisted relationships.
 
-## Milestone 20: Graph Visualization Version 2
+## Milestone 20: Graph Visualization Version 2 (Completed)
 
 Problem:
 
@@ -649,7 +653,7 @@ Knowledge to learn:
 - Visual encoding for edge weight and relation status.
 - Graph UX for learning tools.
 
-## Milestone 21: Relation Review And Manual Editing
+## Milestone 21: Relation Review And Manual Editing (Completed)
 
 Problem:
 
@@ -679,7 +683,7 @@ Knowledge to learn:
 - Trust states in graph data.
 - Separating suggested data from accepted knowledge.
 
-## Milestone 22: LLM-Assisted Relation Typing
+## Milestone 22: LLM-Assisted Relation Typing (Completed)
 
 Problem:
 
@@ -823,16 +827,27 @@ Knowledge to learn:
 
 ## Immediate Implementation Order
 
-Do this next:
+Completed in this phase:
 
 ```text
-16.1 Add card_relations schema
-16.2 Add card relation models/store/service
-16.3 Add cosine similarity recompute flow
-16.4 Add related cards and course graph APIs
-16.5 Add tests
-16.6 Add left sidebar view navigation
-16.7 Add Graph view list-first UI
+[x] 16.1 Add card_relations schema
+[x] 16.2 Add card relation models/store/service
+[x] 16.3 Add cosine similarity recompute flow
+[x] 16.4 Add related cards and course graph APIs
+[x] 16.5 Add tests
+[x] 16.6 Add left sidebar view navigation
+[x] 16.7 Add Graph view list-first UI
+[x] 20 Add interactive force-directed graph visualization
+[x] 21 Add relation review and manual editing
+[x] 22 Add local Qwen-assisted relation typing
+```
+
+Deferred by product decision:
+
+```text
+23 Card-based grounded RAG answers
+24 Evaluation layer
+25 Feedback dataset and agentic learning loop
 ```
 
 Why this order:

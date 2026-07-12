@@ -25,6 +25,9 @@ from .card_embedding import CardEmbeddingBatchResult, CardEmbeddingStatus
 from .card_relation import (
     CardRelatedCardsResponse,
     CardRelation,
+    CardRelationClassificationResult,
+    CardRelationClassifyRequest,
+    CardRelationCreate,
     CardRelationRecomputeRequest,
     CardRelationRecomputeResult,
     CardRelationUpdate,
@@ -334,6 +337,24 @@ def raise_card_relation_http_error(
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(
+        exc,
+        card_relation_service.CardRelationClassificationTimeoutError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=str(exc),
+        ) from exc
+
+    if isinstance(
+        exc,
+        card_relation_service.CardRelationClassificationError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
 
@@ -650,6 +671,26 @@ def recompute_course_card_relations(
 ) -> CardRelationRecomputeResult:
     try:
         return card_relation_service.recompute_course_card_relations(
+            course_id,
+            request,
+        )
+    except course_service.CourseServiceError as exc:
+        raise_course_http_error(exc)
+    except card_relation_service.CardRelationServiceError as exc:
+        raise_card_relation_http_error(exc)
+
+
+@app.post(
+    "/courses/{course_id}/card-relations",
+    response_model=CardRelation,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_course_card_relation(
+    course_id: str,
+    request: CardRelationCreate,
+) -> CardRelation:
+    try:
+        return card_relation_service.create_manual_card_relation(
             course_id,
             request,
         )
@@ -1150,6 +1191,24 @@ def update_card_relation(
         return card_relation_service.update_saved_card_relation(
             relation_id,
             request,
+        )
+    except card_relation_service.CardRelationServiceError as exc:
+        raise_card_relation_http_error(exc)
+
+
+@app.post(
+    "/card-relations/{relation_id}/classify",
+    response_model=CardRelationClassificationResult,
+)
+def classify_card_relation(
+    relation_id: str,
+    request: CardRelationClassifyRequest,
+) -> CardRelationClassificationResult:
+    try:
+        return card_relation_service.classify_saved_card_relation(
+            relation_id,
+            request,
+            llm_client=get_llm_client(),
         )
     except card_relation_service.CardRelationServiceError as exc:
         raise_card_relation_http_error(exc)

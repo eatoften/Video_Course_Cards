@@ -7,6 +7,8 @@ import {
   type MouseEvent,
 } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { AppSidebar, type AppView } from './AppSidebar'
+import { GraphView } from './GraphView'
 import './App.css'
 
 const API_BASE_URL =
@@ -344,6 +346,12 @@ function isTauriRuntime(): boolean {
   return Boolean(window[TAURI_INTERNALS_KEY])
 }
 
+function getViewFromUrl(): AppView {
+  return new URL(window.location.href).searchParams.get('view') === 'graph'
+    ? 'graph'
+    : 'workspace'
+}
+
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 }
@@ -652,6 +660,7 @@ function ClaimsBlock({
 function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const cardGenerationAbortRef = useRef<AbortController | null>(null)
+  const [appView, setAppView] = useState<AppView>(getViewFromUrl)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [courses, setCourses] = useState<Course[]>([])
@@ -1096,6 +1105,23 @@ function App() {
     setRagError(null)
     clearActiveJob()
     setErrorMessage(null)
+
+    const url = new URL(window.location.href)
+    url.searchParams.set('course', courseId)
+    url.searchParams.delete('card')
+    window.history.pushState({}, '', url)
+  }
+
+  function changeAppView(view: AppView) {
+    setAppView(view)
+    const url = new URL(window.location.href)
+    url.searchParams.set('view', view)
+    window.history.pushState({}, '', url)
+  }
+
+  function openWorkspaceCard(cardId: string) {
+    changeAppView('workspace')
+    void openRailCard(cardId)
   }
 
   async function createCourse() {
@@ -2729,6 +2755,15 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const handlePopState = () => {
+      setAppView(getViewFromUrl())
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
     if (backendBoot.phase !== 'ready') {
       return
     }
@@ -2876,7 +2911,7 @@ function App() {
   const canRetry = job?.status === 'failed' && !isStarting
   const canGenerateCards =
     selectedSegments.length > 0 && !isDraftingCards && !isLoadingContext
-  const canCancelCards = isDraftingCards && cardGenerationAbortRef.current
+  const canCancelCards = isDraftingCards
   const isAutoGenerating =
     isStartingAutoGeneration || isAutoGenerationActive(autoGenerationRun)
   const canAutoGenerate =
@@ -2922,6 +2957,9 @@ function App() {
   }
 
   return (
+    <div className="app-frame">
+      <AppSidebar activeView={appView} onChange={changeAppView} />
+      {appView === 'workspace' ? (
     <main className="app-shell">
       <header className="top-bar">
         <div>
@@ -3803,6 +3841,23 @@ function App() {
       </section>
       {renderCourseCardRail()}
     </main>
+      ) : (
+        <main className="graph-shell">
+          <GraphView
+            apiBaseUrl={API_BASE_URL}
+            courses={courses}
+            selectedCourseId={selectedCourseId}
+            selectedModel={selectedModel}
+            initialCardId={
+              selectedRailCard?.id ??
+              new URL(window.location.href).searchParams.get('card')
+            }
+            onSelectCourse={selectCourse}
+            onOpenWorkspaceCard={openWorkspaceCard}
+          />
+        </main>
+      )}
+    </div>
   )
 }
 
