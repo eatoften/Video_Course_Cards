@@ -1896,22 +1896,184 @@ its event's `to_page`.
 
 ## 27. Assignment 1: Transition Baseline
 
-The next implementation should remain training-free so it establishes a clear
-baseline before CNN/ViT experiments.
+The training-free baseline is implemented. It establishes a reproducible lower
+bound before CNN/ViT experiments.
 
-1. Crop away the browser/player chrome and sample the slide region at a
-   configurable rate.
-2. Calculate FFmpeg scene scores for adjacent sampled frames.
-3. Convert score peaks into candidates with a threshold, temporal grouping,
-   and non-maximum suppression.
-4. Add a slide-presence state so camera motion does not become a page change.
-5. Emit `SlideTransitionPrediction` JSONL with timestamp, score, and predicted
-   event type.
-6. Tune only on this smoke interval, then freeze parameters before evaluating
-   another lecture interval.
-7. Report event F1, mean timing error, detection delay, duplicates, and false
-   positives per hour using the existing metrics module.
+### Implemented pipeline
 
-Only after this baseline and its error taxonomy are stable should the project
-scale annotations to the remaining lectures or train a learned transition
-detector.
+```text
+video interval
+-> FFmpeg crop + 2 fps sampling
+-> FFmpeg adjacent-frame scene_score
+-> streamed 160 x 90 RGB frames
+-> Stanford footer marker slide-presence state
+-> persistent spatial-change mask
+-> header/body/footer rule-based event typing
+-> temporal grouping
+-> non-maximum suppression
+-> SlideTransitionPrediction JSONL
+```
+
+The profile is explicit and versioned in
+`backend/multimodal_lab/configs/cs231n_2025_web.json`. Its main calibrated
+values are:
+
+- scene score threshold: `0.002`;
+- sampling rate: `2 fps`;
+- stable lookahead: `1.0 s`;
+- body changed-pixel minimum: `0.004`;
+- header changed-pixel threshold for page changes: `0.025`;
+- candidate grouping gap: `0.75 s`;
+- NMS window: `1.5 s`.
+
+The red CS231n footer acts as a training-free slide-presence marker. A marker
+state transition produces `enter_slide` or `leave_slide`. While a slide is
+present, a persistent header change is a `page_change`, a body-only change is a
+`content_build`, and a transient top/footer overlay is
+`non_semantic_motion`.
+
+### Lecture 2 calibration result
+
+For the manually reviewed `0-900 s` pilot:
+
+- runtime: about `25.4 s` on the development machine;
+- predictions: 40 total;
+- target events: 38;
+- relaxed F1: `1.0`;
+- event-type-aware F1: `1.0`;
+- mean absolute timing error: `0.303 s`;
+- duplicate detections: 0;
+- target false positives: 0.
+
+The two emitted `non_semantic_motion` abstentions were visually checked: the
+`27.0 s` event is player chrome over the slide footer, and the `30.5 s` event
+is the course UI pill near the top-right corner. The opening logo-to-camera fade
+does not create a slide event.
+
+This is a calibration result, not held-out evidence. The thresholds were chosen
+after inspecting this same interval. They must now be frozen before evaluating
+a separately annotated lecture interval. A perfect calibration score must not
+be presented as model generalization.
+
+### Commands
+
+```powershell
+cd backend
+
+uv run python -m multimodal_lab.run_transition_baseline `
+  --video data\uploads\524947e169d8423088a865e778c6e1ac.mp4 `
+  --start 0 --end 900 `
+  --output data\multimodal_lab\cs231n_2025_lecture_02\baseline_predictions.jsonl
+
+uv run python -m multimodal_lab.evaluate_transition_baseline `
+  --annotations data\multimodal_lab\cs231n_2025_lecture_02\transition_events.jsonl `
+  --predictions data\multimodal_lab\cs231n_2025_lecture_02\baseline_predictions.jsonl `
+  --duration 900 --tolerance 1 `
+  --output data\multimodal_lab\cs231n_2025_lecture_02\baseline_calibration_report.json
+```
+
+### Assignment 1.1: Held-out check (complete)
+
+The frozen profile was evaluated once on the independently annotated first 15
+minutes of CS231n 2026 Lecture 3. Before any prediction was run, the gold bundle
+was fixed at 58 visual events, including 54 target events and 14 stable-page
+references. The configuration hash remained
+`3ba8e137ee214b8ab7802f89d522d59a9d983da76d925de08c85f90fd8e1ed03`.
+
+Held-out ablation result:
+
+| Method | Relaxed F1 | Typed F1 | Target FP/hour | Timing MAE |
+| --- | ---: | ---: | ---: | ---: |
+| Scene score only | 0.639 | 0.111 | 176.0 | 0.147 s |
+| Scene score + slide state | 0.771 | 0.757 | 128.0 | 0.148 s |
+| Spatial-state detector | 1.000 | 0.963 | 0.0 | 0.148 s |
+
+The complete method detected every target event without duplicates. Its two
+typed errors were a same-page animation that also changed the title and a true
+PDF page advance that looked exactly like a body-only build. Neither error lost
+the stable visual state required by the product.
+
+Decision: keep the transition configuration frozen and proceed to page reading.
+Do not train a transition CNN/ViT merely to resolve these two taxonomy-ambiguous
+types. A future transition revision requires a new configuration hash and a new
+held-out lecture.
+
+The preregistered protocol, ablations, frozen configuration, result tables, and
+threats to validity are maintained in
+[`Multimodal transition study.md`](Multimodal%20transition%20study.md).
+The compact machine-readable result is
+[`experiments/assignment_1_transition_results.json`](experiments/assignment_1_transition_results.json).
+
+## 28. Assignment 2: Page-Reading Baseline Result
+
+The training-free page-reading baseline is complete. This implementation-stage
+number corresponds to the roadmap's Page-Reading and Oracle Baselines
+assignment.
+
+### Implemented contract and readers
+
+Every reader now returns the same provenance-preserving `PageContent` object:
+
+```text
+stable page reference
+-> image hash + reader/preprocessing versions
+-> ordered PageContentBlock values
+-> raw text + normalized text
+-> confidence, latency, source IDs, and cache key
+```
+
+The three reader paths are:
+
+- `GoldReferencePageReader`, the manual evaluation ceiling;
+- `NativeSourcePageReader`, the deck-available pypdf baseline;
+- `RapidOcrPageReader`, the deck-free local PP-OCRv6/ONNX baseline.
+
+The evaluator refuses to calculate CER/WER from semantic summaries. References
+must explicitly use `gold_text_scope=verbatim_content`; this guard was added
+after a Lecture 3 diagnostic revealed that summary-shaped gold penalizes correct
+extra text.
+
+### Frozen one-shot result
+
+All 16 stable pages from the annotated CS231n 2025 Lecture 2 interval were used.
+The reference SHA-256 was frozen before OCR inference:
+
+```text
+aecb3a7aa7c4816b6d692a3529123df509fb6c3c7eb7b34f91fd59f26d9c6eb8
+```
+
+| Reader | CER | WER | Exact pages | Term recall | Mean reader latency |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Manual gold | 0.000 | 0.000 | 16/16 | 1.000 | 0.000009 s |
+| Native PDF | 0.272 | 0.316 | 7/16 | 0.912 | 0.000207 s |
+| RapidOCR | 0.399 | 0.489 | 10/16 | 0.971 | 2.786 s |
+
+RapidOCR's errors are concentrated in multi-column ordering, dense numerical
+illustrations, attribution-filter bypasses, stylized text, and image-source
+noise. Native extraction is much faster and has lower aggregate edit error, but
+misses rasterized code/labels and can expose a later PDF build state than the
+video frame.
+
+Decision: Gate 1 passes. Keep native text and OCR as complementary evidence with
+separate provenance. Do not call native text an automatic oracle until page and
+build-state alignment is established.
+
+### Next gate: shared reader infrastructure
+
+Before training the handwritten CNN:
+
+1. create a line-crop dataset contract with lecture-level train/validation/test
+   splits;
+2. render clean source lines and generate versioned video-style corruptions;
+3. freeze one character vocabulary, tokenizer, CTC loss, and greedy decoder;
+4. add tensor-shape, gradient, checkpoint, and 32-example overfit tests;
+5. train the CNN encoder only after those tests pass;
+6. reuse exactly the same detector, tokenizer, decoder, data split, and metrics
+   for the later ViT encoder.
+
+The full methodology and error analysis are in
+[`Multimodal page reading study.md`](Multimodal%20page%20reading%20study.md).
+The frozen gold copy and compact result are
+[`experiments/assignment_2_page_reading_references.jsonl`](experiments/assignment_2_page_reading_references.jsonl)
+and
+[`experiments/assignment_2_page_reading_results.json`](experiments/assignment_2_page_reading_results.json).
