@@ -26,6 +26,12 @@ class GoldTextScope(str, Enum):
     verbatim_content = "verbatim_content"
 
 
+class LineLabelSource(str, Enum):
+    manual_exact_match = "manual_exact_match"
+    human_corrected = "human_corrected"
+    synthetic_render = "synthetic_render"
+
+
 class TransitionDetectorVariant(str, Enum):
     scene_only = "scene_only"
     scene_state = "scene_state"
@@ -264,6 +270,143 @@ class PageContent(BaseModel):
                 raise ValueError(
                     "A non-abstained page cannot have an abstention reason."
                 )
+        return self
+
+
+class LineCropSample(BaseModel):
+    schema_version: str = "1.0"
+    sample_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    lecture_id: str = Field(min_length=1)
+    page_event_id: str = Field(min_length=1)
+    page_number: int | None = Field(default=None, ge=1)
+    stable_frame_timestamp: float = Field(ge=0)
+    source_image_path: str = Field(min_length=1)
+    source_image_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    crop_path: str = Field(min_length=1)
+    crop_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    bounding_box: PixelCrop
+    text: str = Field(min_length=1)
+    normalized_text: str = Field(min_length=1)
+    label_source: LineLabelSource
+    detector_reader: PageReaderKind
+    detector_version: str = Field(min_length=1)
+    detector_preprocessing_version: str = Field(min_length=1)
+    detector_cache_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_block_order: int = Field(ge=0)
+
+    @field_validator("text", "normalized_text")
+    @classmethod
+    def reject_multiline_labels(cls, value: str) -> str:
+        if "\n" in value or "\r" in value:
+            raise ValueError("A line-crop label must contain exactly one line.")
+        return value
+
+
+class LineCropDatasetManifest(BaseModel):
+    schema_version: str = "1.0"
+    dataset_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    samples_path: str = Field(min_length=1)
+    sample_count: int = Field(ge=1)
+    references_path: str = Field(min_length=1)
+    references_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    page_contents_path: str = Field(min_length=1)
+    page_contents_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    cropper_version: str = Field(min_length=1)
+    label_source: LineLabelSource
+
+
+class CharacterVocabularySpec(BaseModel):
+    schema_version: str = "1.0"
+    characters: list[str] = Field(min_length=1)
+    blank_token: str = "<blank>"
+    unknown_token: str = "<unk>"
+    blank_id: int = 0
+    unknown_id: int = 1
+    normalization: str = "NFKC-whitespace-v1"
+    case_sensitive: bool = True
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("characters")
+    @classmethod
+    def validate_characters(cls, characters: list[str]) -> list[str]:
+        if any(len(character) != 1 for character in characters):
+            raise ValueError("Vocabulary entries must be individual characters.")
+        if any(character in {"\n", "\r"} for character in characters):
+            raise ValueError("Line vocabularies cannot contain line breaks.")
+        if len(set(characters)) != len(characters):
+            raise ValueError("Vocabulary characters must be unique.")
+        return characters
+
+    @model_validator(mode="after")
+    def validate_special_tokens(self) -> Self:
+        if self.blank_id != 0 or self.unknown_id != 1:
+            raise ValueError("The shared CTC contract fixes blank=0 and unk=1.")
+        if self.blank_token != "<blank>" or self.unknown_token != "<unk>":
+            raise ValueError("The shared CTC special-token names are frozen.")
+        if self.normalization != "NFKC-whitespace-v1" or not self.case_sensitive:
+            raise ValueError("The shared line-text normalization is frozen.")
+        if self.blank_token == self.unknown_token:
+            raise ValueError("blank_token and unknown_token must differ.")
+        return self
+
+
+class LectureSplitManifest(BaseModel):
+    schema_version: str = "1.0"
+    dataset_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    seed: int = Field(ge=0)
+    train_lecture_ids: list[str] = Field(min_length=1)
+    validation_lecture_ids: list[str] = Field(min_length=1)
+    test_lecture_ids: list[str] = Field(min_length=1)
+
+    @field_validator(
+        "train_lecture_ids",
+        "validation_lecture_ids",
+        "test_lecture_ids",
+    )
+    @classmethod
+    def validate_lecture_ids(cls, lecture_ids: list[str]) -> list[str]:
+        cleaned = [lecture_id.strip() for lecture_id in lecture_ids]
+        if any(not lecture_id for lecture_id in cleaned):
+            raise ValueError("Lecture split IDs cannot be blank.")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("Lecture IDs cannot repeat within a split.")
+        return cleaned
+
+    @model_validator(mode="after")
+    def validate_disjoint_lectures(self) -> Self:
+        train = set(self.train_lecture_ids)
+        validation = set(self.validation_lecture_ids)
+        test = set(self.test_lecture_ids)
+        if train & validation or train & test or validation & test:
+            raise ValueError("Lecture-level splits must be disjoint.")
+        return self
+
+
+class CtcOverfitReport(BaseModel):
+    schema_version: str = "1.0"
+    sample_ids: list[str] = Field(min_length=1)
+    sample_count: int = Field(ge=1)
+    dataset_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    vocabulary_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    seed: int = Field(ge=0)
+    device: str = Field(min_length=1)
+    model_parameter_count: int = Field(gt=0)
+    steps_completed: int = Field(ge=0)
+    max_steps: int = Field(gt=0)
+    initial_loss: float = Field(ge=0)
+    final_loss: float = Field(ge=0)
+    exact_match_count: int = Field(ge=0)
+    exact_match_rate: float = Field(ge=0, le=1)
+    character_error_rate: float = Field(ge=0)
+    elapsed_seconds: float = Field(ge=0)
+    passed: bool
+
+    @model_validator(mode="after")
+    def validate_sample_counts(self) -> Self:
+        if len(self.sample_ids) != self.sample_count:
+            raise ValueError("sample_ids must match sample_count.")
+        if self.exact_match_count > self.sample_count:
+            raise ValueError("exact_match_count cannot exceed sample_count.")
         return self
 
 

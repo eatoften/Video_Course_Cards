@@ -1,8 +1,8 @@
 # Multimodal Upgrade Plan
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 
-Status: planned, not yet implemented
+Status: in progress; Assignments 0-3 have implemented baseline results
 
 This document is both an engineering roadmap and an assignment sequence. It is
 designed to turn the current audio-first VideoCourseCards pipeline into a
@@ -2077,3 +2077,134 @@ The frozen gold copy and compact result are
 [`experiments/assignment_2_page_reading_references.jsonl`](experiments/assignment_2_page_reading_references.jsonl)
 and
 [`experiments/assignment_2_page_reading_results.json`](experiments/assignment_2_page_reading_results.json).
+
+## 29. Assignment 3: Shared Line-Crop and CTC Foundation
+
+The shared reader foundation is complete. It is the preflight gate for the
+handwritten CNN and ViT assignments, not a generalization experiment.
+
+### Implemented
+
+- `LineCropSample` preserves source image/crop hashes, page/timestamp, detector
+  and preprocessing versions, detector cache key, bounding box, block order,
+  label, and label source.
+- Exact-match crop construction accepts a RapidOCR polygon only when its text
+  exactly matches an unused line from manual `verbatim_content` gold.
+- `LineCropDataset` performs hash verification, aspect-preserving grayscale
+  resize, ink inversion, and right padding.
+- `CharacterTokenizer` freezes `blank=0`, `unk=1`, NFKC whitespace
+  normalization, case sensitivity, character ordering, and vocabulary hash.
+- The shared CTC adapter validates repeated-character time requirements,
+  converts `[B, T, V]` logits to PyTorch's `[T, B, V]` loss contract, and exposes
+  a greedy collapse-then-remove-blank decoder.
+- The lecture splitter assigns whole lectures, records its seed, validates
+  disjoint sets, and refuses fewer than three lectures.
+- A small image-to-CTC probe exercises the entire path and saves its vocabulary,
+  predictions, checkpoint, and structured report.
+
+### Frozen crop dataset
+
+The first local crop bundle contains 62 manually grounded CS231n Lecture 2
+lines:
+
+```text
+dataset SHA-256:
+fdcdc086a9ff53931c9ccfa4b0f2d47fd81085ba0c99385633a97b942914a368
+```
+
+This is a high-precision diagnostic subset biased toward text RapidOCR already
+read correctly. It must not be used to claim OCR accuracy.
+
+### 32-line overfit gate
+
+| Metric | Result |
+| --- | ---: |
+| Device | CPU |
+| Parameters | 79,927 |
+| Steps | 280 |
+| Initial/final loss | 7.4179 / 0.0555 |
+| Exact lines | 32/32 |
+| CER | 0.000 |
+| Elapsed time | 63.7 s |
+
+Decision: the shared CTC plumbing passes. The result proves that image loading,
+padding, output-length calculation, target packing, loss, gradients, and greedy
+decoding agree. It does not measure unseen-lecture performance.
+
+### Remaining gate before the CNN experiment
+
+1. Produce corrected or rendered line labels for at least three independent
+   lectures.
+2. Freeze the formal lecture-level split.
+3. Fit the final vocabulary using training lectures only.
+4. Add versioned clean-to-video corruption pairs.
+5. Declare the handwritten CNN architecture and validation-selection rule.
+6. Train on train lectures, tune on validation lectures, and open the test
+   lecture only once.
+
+The implementation notes, CTC explanation, commands, limitations, and exact
+result are maintained in
+[`Multimodal CTC reader foundation.md`](Multimodal%20CTC%20reader%20foundation.md)
+and
+[`experiments/assignment_3_ctc_foundation_results.json`](experiments/assignment_3_ctc_foundation_results.json).
+
+## 30. Research Code Organization Gate
+
+Before Assignment 4 adds a formal CNN, the experiment package must pass a code
+organization gate. This gate was added after comparing three public research
+codebases associated with conference award papers:
+
+- [VGGT](https://github.com/facebookresearch/vggt), whose official repository
+  identifies it as a CVPR 2025 Best Paper, keeps its installable model package
+  separate from `training/`, then separates training configuration, data,
+  launch, trainer, loss, and utilities inside the training area.
+- [DINOv2](https://github.com/facebookresearch/dinov2) is the released codebase
+  used by the ICLR 2024 Outstanding Paper
+  [Vision Transformers Need Registers](https://iclr.cc/virtual/2024/oral/19794).
+  It separates train/eval configurations and commands, documents exact dataset
+  layouts and output directories, and keeps model limitations in a model card.
+- [VAR](https://github.com/FoundationVision/VAR), associated with a
+  [NeurIPS 2024 Best Paper](https://blog.neurips.cc/2024/), uses a much smaller
+  flat training layout but still provides exact commands, logs, checkpoints,
+  automatic resume behavior, and an independent evaluation recipe.
+
+The lesson is not to copy the largest directory tree. The shared properties are
+clear executable entry points, explicit configuration, train/evaluation
+separation, reproducible outputs, and a short path from paper claim to artifact.
+
+### Frozen rules for this repository
+
+1. `backend/app` remains product code and must not import experiment training
+   modules.
+2. Existing data, metrics, and baseline modules stay in
+   `backend/multimodal_lab`; they will not be moved merely for visual symmetry.
+3. Assignment 4 introduces `configs/`, `models/`, and `training/` only when the
+   CNN and ViT have shared infrastructure to place there.
+4. CNN and ViT must use one trainer, evaluator, tokenizer, decoder, split, and
+   metric implementation. Only the declared encoder may differ.
+5. Formal training and independent test evaluation use separate CLI entry
+   points. The test command cannot select a checkpoint.
+6. Full run artifacts stay under ignored `backend/data/multimodal_lab`; Git
+   stores only reviewed compact results and study reports.
+7. Every formal run records configuration, dataset and split hashes, random
+   seed, Git revision/dirty state, environment fingerprint, metrics,
+   predictions, and artifact hashes.
+8. Do not add MLflow, Hydra, DVC, a registry, or a plugin system at the current
+   scale. Introduce infrastructure only after a concrete limitation is
+   measured.
+
+The package-level file map and merge checklist are maintained in
+[`backend/multimodal_lab/README.md`](../backend/multimodal_lab/README.md).
+
+### Gate decision
+
+Assignment 4 may start only after:
+
+- a third independent lecture enables a real lecture-level split;
+- the formal dataset audit passes;
+- checked-in CNN/ViT configuration files are frozen;
+- training and test evaluation commands are demonstrably separate;
+- targeted tests pass and generated checkpoints remain outside Git.
+
+This gate prevents a successful diagnostic overfit result from quietly turning
+into an untraceable benchmark claim.
