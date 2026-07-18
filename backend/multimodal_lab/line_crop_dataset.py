@@ -82,7 +82,7 @@ class LineCropDataset(Dataset[LineCropItem]):
 
     def __getitem__(self, index: int) -> LineCropItem:
         sample = self._samples[index]
-        crop_path = _resolve_path(sample.crop_path, root=self._image_root)
+        crop_path = resolve_dataset_path(sample.crop_path, root=self._image_root)
         if not crop_path.is_file():
             raise LineCropDatasetError(f"Line crop does not exist: {crop_path}")
         if (
@@ -190,7 +190,7 @@ def build_exact_match_line_crops(
             )
         content = contents_by_id[reference.page_event_id]
         _validate_page_provenance(reference, content)
-        source_path = _resolve_path(content.image_path, root=root)
+        source_path = resolve_dataset_path(content.image_path, root=root)
         if not source_path.is_file():
             raise LineCropDatasetError(
                 f"Stable source image does not exist: {source_path}"
@@ -215,13 +215,13 @@ def build_exact_match_line_crops(
                 if not available_labels or block.polygon is None:
                     continue
                 label = available_labels.popleft()
-                bounding_box = _polygon_to_crop(
+                bounding_box = polygon_to_pixel_crop(
                     block.polygon,
                     image_width=rgb_image.width,
                     image_height=rgb_image.height,
                     padding_pixels=padding_pixels,
                 )
-                sample_id = _line_crop_sample_id(
+                sample_id = line_crop_sample_id(
                     source_image_sha256=source_hash,
                     page_content_cache_key=content.cache_key,
                     page_event_id=reference.page_event_id,
@@ -246,9 +246,9 @@ def build_exact_match_line_crops(
                         page_event_id=reference.page_event_id,
                         page_number=reference.page_number,
                         stable_frame_timestamp=reference.stable_frame_timestamp,
-                        source_image_path=_portable_path(source_path, root=root),
+                        source_image_path=portable_dataset_path(source_path, root=root),
                         source_image_sha256=source_hash,
-                        crop_path=_portable_path(crop_path, root=root),
+                        crop_path=portable_dataset_path(crop_path, root=root),
                         crop_sha256=sha256_file(crop_path),
                         bounding_box=bounding_box,
                         text=label,
@@ -353,7 +353,7 @@ def partition_by_lecture_split(
     return partitions
 
 
-def _polygon_to_crop(
+def polygon_to_pixel_crop(
     polygon: Sequence[tuple[float, float]],
     *,
     image_width: int,
@@ -388,7 +388,7 @@ def _validate_page_provenance(
         raise LineCropDatasetError("Page content has the wrong timestamp.")
 
 
-def _line_crop_sample_id(
+def line_crop_sample_id(
     *,
     source_image_sha256: str,
     page_content_cache_key: str,
@@ -415,12 +415,12 @@ def _line_crop_sample_id(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _resolve_path(path: str | Path, *, root: Path) -> Path:
+def resolve_dataset_path(path: str | Path, *, root: Path) -> Path:
     configured = Path(path)
     return (configured if configured.is_absolute() else root / configured).resolve()
 
 
-def _portable_path(path: Path, *, root: Path) -> str:
+def portable_dataset_path(path: Path, *, root: Path) -> str:
     try:
         return path.relative_to(root).as_posix()
     except ValueError:

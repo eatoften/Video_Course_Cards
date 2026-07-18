@@ -177,6 +177,7 @@ def audit_reader_dataset(
         _audit_formal_label_sources(
             label_sources_by_split,
             problems=problems,
+            warnings=warnings,
         )
 
     train_texts = [
@@ -230,6 +231,7 @@ def _audit_formal_label_sources(
     sources: dict[DatasetSplit, dict[LineLabelSource, int]],
     *,
     problems: list[str],
+    warnings: list[str],
 ) -> None:
     if sources[DatasetSplit.train].get(LineLabelSource.manual_exact_match, 0):
         problems.append(
@@ -239,12 +241,18 @@ def _audit_formal_label_sources(
 
     for dataset_split in (DatasetSplit.validation, DatasetSplit.test):
         invalid_sources = set(sources[dataset_split]) - {
-            LineLabelSource.human_corrected
+            LineLabelSource.human_corrected,
+            LineLabelSource.source_aligned,
         }
         if invalid_sources:
             problems.append(
                 f"Formal {dataset_split.value} labels must be human-corrected "
-                "and independent of the evaluated reader."
+                "or independently source-aligned."
+            )
+        if sources[dataset_split].get(LineLabelSource.source_aligned, 0):
+            warnings.append(
+                f"{dataset_split.value} uses source-aligned labels; obtain an "
+                "independent human spot-check before a publication claim."
             )
 
 

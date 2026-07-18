@@ -148,11 +148,12 @@ def pack_ctc_targets(
     tokenizer: CharacterTokenizer,
     *,
     device: torch.device | str | None = None,
+    allow_unknown: bool = False,
 ) -> CtcTargetBatch:
     if not texts:
         raise CtcTextError("A CTC target batch cannot be empty.")
     sequences = tuple(
-        tuple(tokenizer.encode(text, allow_unknown=False))
+        tuple(tokenizer.encode(text, allow_unknown=allow_unknown))
         for text in texts
     )
     values = torch.tensor(

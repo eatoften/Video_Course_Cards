@@ -1,9 +1,14 @@
+from pathlib import Path
+
+from multimodal_lab.annotation_io import write_jsonl
 from multimodal_lab.experiment_protocol import (
     ExperimentPhase,
     ExperimentRunSpec,
     ExperimentTask,
     audit_reader_dataset,
 )
+from multimodal_lab.page_reading import sha256_file
+from multimodal_lab.run_formal_reader_dataset import main as dataset_cli_main
 from multimodal_lab.schemas import (
     LectureSplitManifest,
     LineCropSample,
@@ -144,3 +149,75 @@ def test_formal_reader_audit_rejects_ocr_selected_labels():
 
     assert not report.passed
     assert any("OCR-selected" in problem for problem in report.problems)
+
+
+def test_formal_reader_audit_accepts_source_aligned_evaluation_with_warning():
+    samples = [
+        make_sample(
+            1,
+            lecture_id="lecture-train",
+            text="abc",
+            label_source=LineLabelSource.synthetic_render,
+        ),
+        make_sample(
+            2,
+            lecture_id="lecture-validation",
+            text="abc",
+            label_source=LineLabelSource.source_aligned,
+        ),
+        make_sample(
+            3,
+            lecture_id="lecture-test",
+            text="abc",
+            label_source=LineLabelSource.source_aligned,
+        ),
+    ]
+
+    report = audit_reader_dataset(
+        samples,
+        make_split(),
+        dataset_sha256=DATASET_HASH,
+    )
+
+    assert report.passed
+    assert len(report.warnings) == 2
+    assert all("human spot-check" in warning for warning in report.warnings)
+
+
+def test_dataset_cli_freezes_split_and_passing_audit(tmp_path: Path):
+    samples = [
+        make_sample(1, lecture_id="lecture-a", text="abc"),
+        make_sample(2, lecture_id="lecture-b", text="abc"),
+        make_sample(3, lecture_id="lecture-c", text="abc"),
+    ]
+    dataset_path = tmp_path / "samples.jsonl"
+    split_path = tmp_path / "split.json"
+    audit_path = tmp_path / "audit.json"
+    write_jsonl(dataset_path, samples)
+
+    exit_code = dataset_cli_main(
+        [
+            "audit",
+            "--dataset",
+            str(dataset_path),
+            "--split-output",
+            str(split_path),
+            "--audit-output",
+            str(audit_path),
+            "--seed",
+            "1",
+        ]
+    )
+
+    split = LectureSplitManifest.model_validate_json(
+        split_path.read_text(encoding="utf-8")
+    )
+    report = audit_reader_dataset(
+        samples,
+        split,
+        dataset_sha256=sha256_file(dataset_path),
+    )
+    assert exit_code == 0
+    assert split.dataset_sha256 == sha256_file(dataset_path)
+    assert report.passed
+    assert audit_path.is_file()

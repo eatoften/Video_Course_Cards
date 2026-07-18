@@ -2208,3 +2208,71 @@ Assignment 4 may start only after:
 
 This gate prevents a successful diagnostic overfit result from quietly turning
 into an untraceable benchmark claim.
+
+## 31. Assignment 4 Pre-Model Gate (Complete)
+
+The repository now has the experimental boundary required before a formal CNN
+or ViT is handwritten. This assignment deliberately stops before model code.
+
+### Third independent lecture
+
+CS231n 2025 Lecture 4 is frozen as the test lecture using the official course
+schedule and official deck. The first 15 minutes contain 14 stable page
+references. Video, transcript, deck, and reference hashes are recorded in the
+study report.
+
+The frozen transition profile emitted zero predictions on this lecture because
+its camera/layout sequence differs from the earlier lectures. No test-lecture
+retuning was performed. Stable pages were found from a fixed 30-second overview
+grid and verified against the official deck without using OCR correctness.
+
+### Formal split
+
+| Split | Lecture | Samples | Labels |
+| --- | --- | ---: | --- |
+| Train | CS231n 2025 Lecture 2 | 268 | synthetic render |
+| Validation | CS231n 2026 Lecture 3 | 96 | source aligned |
+| Test | CS231n 2025 Lecture 4 | 67 | source aligned |
+
+The 431-sample dataset hash is
+`e82b00706f07343412f9e7dce40853cd30e4aa06999da5c0980ae7b86f56195d`.
+The seed-1 lecture split and audit hashes are respectively
+`6b0445633d4aa445f6153d592176366e497533f058e99c318e2dd05ee718290a`
+and
+`317740210bc401a4156d3d1c7340e28549a1568bcc23334b5d9dd0d884288143`.
+
+The audit passes with no cross-split crop or source-page hashes. The vocabulary
+is fitted on train only. Validation has a 1.010% unknown-character rate and test
+has 1.370%; these warnings are retained instead of leaking evaluation
+characters into training. Source-aligned labels require independent human
+spot-checking before publication.
+
+### Shared engine
+
+The repository now contains:
+
+- a review-aware formal line-crop builder and reproducible dataset CLI;
+- an `audit` command that freezes and verifies the lecture split;
+- hash-bound experiment configuration models;
+- one first-CNN configuration declaration;
+- a model-independent data bundle and `ReaderModelOutput` contract;
+- one trainer with AdamW, clipping, AMP, validation selection, and early stop;
+- one evaluator with CTC loss, CER, WER, exact match, and predictions;
+- CI-safe toy-model tests for data, output, gradient, checkpoint, and metrics.
+
+The audit command reproduces the frozen split and audit hashes exactly. The
+focused pre-model suite has 23 passing tests.
+The complete backend regression suite has 235 passing tests.
+
+### Explicit stopping point
+
+No production CNN or ViT model exists. No formal model has been trained, and no
+architecture comparison result is claimed. The next exercise is for the user
+to handwrite `models/cnn_ctc.py` against the frozen shared contract. The ViT
+must come later and change only the encoder.
+
+Full methods, threats to validity, reproduction commands, and implementation
+map are in
+[`Multimodal formal reader pre-model gate.md`](Multimodal%20formal%20reader%20pre-model%20gate.md).
+The compact result is
+[`experiments/assignment_4_pre_model_gate_results.json`](experiments/assignment_4_pre_model_gate_results.json).

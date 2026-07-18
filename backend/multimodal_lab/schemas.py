@@ -29,7 +29,22 @@ class GoldTextScope(str, Enum):
 class LineLabelSource(str, Enum):
     manual_exact_match = "manual_exact_match"
     human_corrected = "human_corrected"
+    source_aligned = "source_aligned"
     synthetic_render = "synthetic_render"
+
+
+class LineReviewDecision(str, Enum):
+    pending = "pending"
+    include = "include"
+    exclude = "exclude"
+
+
+class LineReviewExclusionReason(str, Enum):
+    non_content = "non_content"
+    math_or_symbol_only = "math_or_symbol_only"
+    duplicate = "duplicate"
+    unreadable = "unreadable"
+    outside_scope = "outside_scope"
 
 
 class TransitionDetectorVariant(str, Enum):
@@ -302,6 +317,47 @@ class LineCropSample(BaseModel):
         return value
 
 
+class LineCropReviewRecord(BaseModel):
+    schema_version: str = "1.0"
+    page_event_id: str = Field(min_length=1)
+    page_content_cache_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_image_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_block_order: int = Field(ge=0)
+    detected_text: str = Field(min_length=1)
+    decision: LineReviewDecision = LineReviewDecision.pending
+    corrected_text: str | None = None
+    exclusion_reason: LineReviewExclusionReason | None = None
+    review_method: str | None = None
+    notes: str | None = None
+
+    @model_validator(mode="after")
+    def validate_decision(self) -> Self:
+        corrected = (self.corrected_text or "").strip()
+        method = (self.review_method or "").strip()
+        if self.corrected_text is not None and (
+            "\n" in self.corrected_text or "\r" in self.corrected_text
+        ):
+            raise ValueError("A reviewed line label must contain one line.")
+        if self.decision is LineReviewDecision.pending:
+            if corrected or self.exclusion_reason is not None or method:
+                raise ValueError("A pending review cannot contain a decision payload.")
+        elif self.decision is LineReviewDecision.include:
+            if not corrected or not method:
+                raise ValueError(
+                    "An included review requires corrected_text and review_method."
+                )
+            if self.exclusion_reason is not None:
+                raise ValueError("An included review cannot have an exclusion reason.")
+        else:
+            if self.exclusion_reason is None or not method:
+                raise ValueError(
+                    "An excluded review requires exclusion_reason and review_method."
+                )
+            if corrected:
+                raise ValueError("An excluded review cannot contain corrected_text.")
+        return self
+
+
 class LineCropDatasetManifest(BaseModel):
     schema_version: str = "1.0"
     dataset_id: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -347,6 +403,65 @@ class CharacterVocabularySpec(BaseModel):
             raise ValueError("The shared line-text normalization is frozen.")
         if self.blank_token == self.unknown_token:
             raise ValueError("blank_token and unknown_token must differ.")
+        return self
+
+
+class ReaderPrediction(BaseModel):
+    sample_id: str = Field(min_length=1)
+    reference: str = Field(min_length=1)
+    prediction: str
+    exact_match: bool
+
+
+class ReaderEvaluationMetrics(BaseModel):
+    sample_count: int = Field(ge=1)
+    mean_loss: float = Field(ge=0)
+    character_error_rate: float = Field(ge=0)
+    word_error_rate: float = Field(ge=0)
+    exact_match_count: int = Field(ge=0)
+    exact_match_rate: float = Field(ge=0, le=1)
+    unknown_reference_character_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_exact_matches(self) -> Self:
+        if self.exact_match_count > self.sample_count:
+            raise ValueError("exact_match_count cannot exceed sample_count.")
+        return self
+
+
+class ReaderEvaluationReport(BaseModel):
+    schema_version: str = "1.0"
+    split: DatasetSplit
+    metrics: ReaderEvaluationMetrics
+    predictions: list[ReaderPrediction] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_prediction_count(self) -> Self:
+        if len(self.predictions) != self.metrics.sample_count:
+            raise ValueError("Prediction count must equal evaluated sample count.")
+        return self
+
+
+class ReaderEpochRecord(BaseModel):
+    epoch: int = Field(ge=1)
+    train_loss: float = Field(ge=0)
+    validation: ReaderEvaluationMetrics
+
+
+class ReaderTrainingReport(BaseModel):
+    schema_version: str = "1.0"
+    epochs_completed: int = Field(ge=1)
+    best_epoch: int = Field(ge=1)
+    stopped_early: bool
+    checkpoint_path: str = Field(min_length=1)
+    history: list[ReaderEpochRecord] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_epochs(self) -> Self:
+        if self.epochs_completed != len(self.history):
+            raise ValueError("epochs_completed must match history length.")
+        if self.best_epoch > self.epochs_completed:
+            raise ValueError("best_epoch cannot exceed epochs_completed.")
         return self
 
 
