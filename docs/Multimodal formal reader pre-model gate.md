@@ -233,3 +233,21 @@ unstarted.
   and `reader_evaluator.py`
 - Machine-readable result:
   `docs/experiments/assignment_4_pre_model_gate_results.json`
+
+## 12. Historical Snapshot Note
+
+This document and its machine-readable result describe the boundary at commit
+`26421f1`, before the handwritten CNN existed. They are intentionally retained
+instead of being rewritten after training.
+
+During model implementation, the declared configuration gained explicit
+normalization, activation, pooling, height-reduction, and blank-bias fields.
+The pre-model configuration hash
+`8b5e657363395cef8c96facdfb78b378ab23bcd4052e1eb78499779e8aa74960`
+therefore remains the historical draft identity. The final CNN v1 configuration
+hash is
+`0402e050e2b9166fc92f36ab0255d65d96dbacea3bb1cd1a0a1adf0a466e2b60`.
+
+The completed model, one-time held-out result, and updated threats to validity
+are recorded separately in `docs/Multimodal CNN reader study.md` and
+`docs/experiments/assignment_4_cnn_reader_results.json`.

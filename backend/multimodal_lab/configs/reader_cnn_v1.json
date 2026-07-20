@@ -10,7 +10,12 @@
     "kernel_size": 3,
     "temporal_downsample": 4,
     "output_features": 128,
-    "dropout": 0.1
+    "dropout": 0.1,
+    "normalization": "channel_layer_norm",
+    "activation": "gelu",
+    "pooling": "max_pool_2x2",
+    "height_reduction": "mean",
+    "blank_logit_bias": -1.0
   },
   "data": {
     "dataset_path": "data/multimodal_lab/formal_reader_v1/line_crop_samples.jsonl",

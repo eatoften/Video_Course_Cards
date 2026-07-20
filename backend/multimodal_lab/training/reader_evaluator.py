@@ -9,6 +9,7 @@ from ..ctc_text import (
     CharacterTokenizer,
     ctc_loss,
     greedy_ctc_decode,
+    greedy_ctc_decode_token_ids,
     pack_ctc_targets,
 )
 from ..line_crop_dataset import LineCropBatch
@@ -68,16 +69,29 @@ def evaluate_reader(
                 output.input_lengths,
                 tokenizer,
             )
+            decoded_token_ids = greedy_ctc_decode_token_ids(
+                output.logits,
+                output.input_lengths,
+                blank_id=tokenizer.blank_id,
+                vocabulary_size=tokenizer.vocabulary_size,
+            )
             loss_sum += float(loss.item()) * len(batch.texts)
-            for sample_id, reference, prediction in zip(
+            for sample_id, reference, prediction, prediction_ids in zip(
                 batch.sample_ids,
                 batch.texts,
                 decoded,
+                decoded_token_ids,
             ):
-                reference_words = reference.split()
-                prediction_words = prediction.split()
-                character_edits += levenshtein_distance(reference, prediction)
-                character_total += len(reference)
+                reference_ids = tokenizer.encode(reference)
+                scored_reference = _scored_text(reference_ids, tokenizer)
+                scored_prediction = _scored_text(prediction_ids, tokenizer)
+                reference_words = scored_reference.split()
+                prediction_words = scored_prediction.split()
+                character_edits += levenshtein_distance(
+                    reference_ids,
+                    prediction_ids,
+                )
+                character_total += len(reference_ids)
                 word_edits += levenshtein_distance(
                     reference_words,
                     prediction_words,
@@ -92,7 +106,9 @@ def evaluate_reader(
                         sample_id=sample_id,
                         reference=reference,
                         prediction=prediction,
-                        exact_match=reference == prediction,
+                        scored_reference=scored_reference,
+                        scored_prediction=scored_prediction,
+                        exact_match=reference_ids == prediction_ids,
                     )
                 )
 
@@ -112,4 +128,14 @@ def evaluate_reader(
         split=split,
         metrics=metrics,
         predictions=predictions,
+    )
+
+
+def _scored_text(
+    token_ids: list[int],
+    tokenizer: CharacterTokenizer,
+) -> str:
+    return "".join(
+        "\ufffd" if token_id == tokenizer.unknown_id else tokenizer.decode([token_id])
+        for token_id in token_ids
     )

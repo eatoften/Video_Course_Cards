@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-18
 
-Status: in progress; Assignments 0-3 have implemented baseline results
+Status: in progress; Assignments 0-4 have implemented baseline results
 
 This document is both an engineering roadmap and an assignment sequence. It is
 designed to turn the current audio-first VideoCourseCards pipeline into a
@@ -2276,3 +2276,63 @@ map are in
 [`Multimodal formal reader pre-model gate.md`](Multimodal%20formal%20reader%20pre-model%20gate.md).
 The compact result is
 [`experiments/assignment_4_pre_model_gate_results.json`](experiments/assignment_4_pre_model_gate_results.json).
+
+## 32. Assignment 4 CNN-CTC Reader Baseline (Complete)
+
+The pre-model stopping point above is preserved as a historical gate. The
+first formal handwritten reader has now crossed it without changing the frozen
+dataset, lecture split, or train-only vocabulary.
+
+### Implemented boundary
+
+- a three-block CNN with channel-wise LayerNorm and horizontal stride 4;
+- explicit valid-column masking after every block;
+- a model-independent CTC projection head for later encoder comparison;
+- a 32-distinct-line capacity gate;
+- separate train/validation and held-out test data bundles;
+- hash-bound checkpoints and independent train/evaluate commands;
+- token-level unknown-character scoring for CER;
+- focused architecture, gradient, padding, checkpoint, and command tests.
+
+### Frozen result
+
+| Evidence | Result |
+| --- | ---: |
+| Parameters | 118,307 |
+| 32-line overfit | 32/32 exact, CER 0 |
+| Validation Lecture 3 | CER 0.1757, WER 0.5915, 13/96 exact |
+| Test Lecture 4 | CER 0.2723, WER 0.8750, 4/67 exact |
+| RapidOCR on the same included polygons | CER 0.0417, 62/67 exact |
+
+The checkpoint was selected at epoch 35 using validation CER and then hashed.
+The held-out test command verified that hash and was run once. CNN v1 was not
+changed after its test result. The result establishes a reproducible baseline,
+not a competitive OCR model.
+
+### Research conclusion
+
+Perfect memorization plus much weaker video-crop performance identifies the
+central problem as generalization, especially synthetic-to-video domain shift,
+unknown characters, code, punctuation, digits, and long visual sequences. The
+RapidOCR number is a useful engineering reference but is selection-biased
+because the included crop polygons originate from RapidOCR detections.
+
+### Next assignment gate
+
+Do not implement ViT by simply swapping classes and consulting Lecture 4
+again. Before Assignment 5:
+
+1. Freeze CNN v1 and its result permanently.
+2. Add independently reviewed lectures or define lecture-level cross-
+   validation so a single test lecture is not repeatedly consumed.
+3. Decide whether the scientific question is encoder comparison under the
+   current domain gap or robustness after a shared augmentation policy.
+4. Freeze the ViT parameter budget, patch geometry, and shared-head contract
+   before training.
+5. Reuse the same tokenizer, decoder, metrics, trainer, and selection rule; a
+   ViT-only training advantage would invalidate the controlled comparison.
+
+Methods and threats to validity are in
+[`Multimodal CNN reader study.md`](Multimodal%20CNN%20reader%20study.md).
+The compact result is
+[`experiments/assignment_4_cnn_reader_results.json`](experiments/assignment_4_cnn_reader_results.json).

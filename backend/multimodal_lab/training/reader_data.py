@@ -25,20 +25,86 @@ from ..schemas import DatasetSplit, LineCropSample
 
 
 @dataclass(frozen=True)
-class ReaderDataBundle:
+class ReaderTrainingDataBundle:
     contract: VerifiedReaderDataContract
     tokenizer: CharacterTokenizer
     train_loader: DataLoader
     validation_loader: DataLoader
-    test_loader: DataLoader
     sample_counts: dict[DatasetSplit, int]
 
 
-def build_reader_data_bundle(
+@dataclass(frozen=True)
+class ReaderTestDataBundle:
+    contract: VerifiedReaderDataContract
+    tokenizer: CharacterTokenizer
+    test_loader: DataLoader
+    sample_count: int
+
+
+def build_reader_training_data_bundle(
     config: ReaderExperimentConfig,
     *,
     project_root: str | Path,
-) -> ReaderDataBundle:
+) -> ReaderTrainingDataBundle:
+    contract, tokenizer, partitions, transform = _load_verified_data(
+        config,
+        project_root=project_root,
+    )
+    generator = torch.Generator().manual_seed(config.seed)
+    return ReaderTrainingDataBundle(
+        contract=contract,
+        tokenizer=tokenizer,
+        train_loader=_make_loader(
+            partitions[DatasetSplit.train],
+            contract=contract,
+            transform=transform,
+            config=config,
+            shuffle=True,
+            generator=generator,
+        ),
+        validation_loader=_make_loader(
+            partitions[DatasetSplit.validation],
+            contract=contract,
+            transform=transform,
+            config=config,
+            shuffle=False,
+        ),
+        sample_counts={
+            DatasetSplit.train: len(partitions[DatasetSplit.train]),
+            DatasetSplit.validation: len(partitions[DatasetSplit.validation]),
+        },
+    )
+
+
+def build_reader_test_data_bundle(
+    config: ReaderExperimentConfig,
+    *,
+    project_root: str | Path,
+) -> ReaderTestDataBundle:
+    contract, tokenizer, partitions, transform = _load_verified_data(
+        config,
+        project_root=project_root,
+    )
+    test_samples = partitions[DatasetSplit.test]
+    return ReaderTestDataBundle(
+        contract=contract,
+        tokenizer=tokenizer,
+        test_loader=_make_loader(
+            test_samples,
+            contract=contract,
+            transform=transform,
+            config=config,
+            shuffle=False,
+        ),
+        sample_count=len(test_samples),
+    )
+
+
+def _load_verified_data(
+    config: ReaderExperimentConfig,
+    *,
+    project_root: str | Path,
+):
     contract = verify_reader_data_contract(config, project_root=project_root)
     samples = load_jsonl(contract.dataset_path, LineCropSample)
     partitions = partition_by_lecture_split(samples, contract.split)
@@ -47,43 +113,38 @@ def build_reader_data_bundle(
     )
     if tokenizer.spec.sha256 != config.data.expected_vocabulary_sha256:
         raise ValueError("Training-only tokenizer does not match the frozen hash.")
-
     transform = LineImageTransform(
         target_height=config.data.target_height,
         max_width=config.data.max_image_width,
         verify_hashes=True,
     )
-    datasets = {
-        split: LineCropDataset(
-            split_samples,
-            image_root=contract.image_root,
-            transform=transform,
-        )
-        for split, split_samples in partitions.items()
-    }
-    collate = partial(collate_line_crops, width_multiple=4)
-    generator = torch.Generator().manual_seed(config.seed)
+    return contract, tokenizer, partitions, transform
 
-    def make_loader(split: DatasetSplit, *, shuffle: bool) -> DataLoader:
-        return DataLoader(
-            datasets[split],
-            batch_size=config.data.batch_size,
-            shuffle=shuffle,
-            num_workers=config.data.num_workers,
-            pin_memory=config.data.pin_memory,
-            drop_last=False,
-            collate_fn=collate,
-            generator=generator if shuffle else None,
-        )
 
-    return ReaderDataBundle(
-        contract=contract,
-        tokenizer=tokenizer,
-        train_loader=make_loader(DatasetSplit.train, shuffle=True),
-        validation_loader=make_loader(DatasetSplit.validation, shuffle=False),
-        test_loader=make_loader(DatasetSplit.test, shuffle=False),
-        sample_counts={
-            split: len(split_samples)
-            for split, split_samples in partitions.items()
-        },
+def _make_loader(
+    samples: list[LineCropSample],
+    *,
+    contract: VerifiedReaderDataContract,
+    transform: LineImageTransform,
+    config: ReaderExperimentConfig,
+    shuffle: bool,
+    generator: torch.Generator | None = None,
+) -> DataLoader:
+    dataset = LineCropDataset(
+        samples,
+        image_root=contract.image_root,
+        transform=transform,
+    )
+    return DataLoader(
+        dataset,
+        batch_size=config.data.batch_size,
+        shuffle=shuffle,
+        num_workers=config.data.num_workers,
+        pin_memory=config.data.pin_memory and torch.cuda.is_available(),
+        drop_last=False,
+        collate_fn=partial(
+            collate_line_crops,
+            width_multiple=config.model.temporal_downsample,
+        ),
+        generator=generator if shuffle else None,
     )

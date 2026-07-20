@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
 import numpy as np
@@ -97,6 +97,8 @@ def fit_reader(
     optimization: ReaderOptimizationConfig,
     device: torch.device | str,
     checkpoint_path: str | Path,
+    checkpoint_metadata: Mapping[str, object] | None = None,
+    epoch_callback: Callable[[ReaderEpochRecord], None] | None = None,
 ) -> ReaderTrainingReport:
     configured_device = torch.device(device)
     model.to(configured_device)
@@ -132,13 +134,14 @@ def fit_reader(
             split=DatasetSplit.validation,
             device=configured_device,
         )
-        history.append(
-            ReaderEpochRecord(
-                epoch=epoch,
-                train_loss=train_loss,
-                validation=validation.metrics,
-            )
+        epoch_record = ReaderEpochRecord(
+            epoch=epoch,
+            train_loss=train_loss,
+            validation=validation.metrics,
         )
+        history.append(epoch_record)
+        if epoch_callback is not None:
+            epoch_callback(epoch_record)
         key = (
             validation.metrics.character_error_rate,
             validation.metrics.word_error_rate,
@@ -156,6 +159,7 @@ def fit_reader(
                         mode="json"
                     ),
                     "vocabulary": tokenizer.spec.model_dump(mode="json"),
+                    "metadata": dict(checkpoint_metadata or {}),
                 },
                 checkpoint,
             )

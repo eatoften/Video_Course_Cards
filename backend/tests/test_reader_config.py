@@ -22,7 +22,10 @@ from multimodal_lab.schemas import (
     PageReaderKind,
     PixelCrop,
 )
-from multimodal_lab.training.reader_data import build_reader_data_bundle
+from multimodal_lab.training.reader_data import (
+    build_reader_test_data_bundle,
+    build_reader_training_data_bundle,
+)
 
 
 CONFIG_PATH = (
@@ -33,11 +36,13 @@ CONFIG_PATH = (
 )
 
 
-def test_checked_in_cnn_config_is_valid_without_implementing_a_model():
+def test_checked_in_cnn_config_freezes_the_architecture_choices():
     config = load_reader_experiment_config(CONFIG_PATH)
 
     assert config.model.kind == "cnn_ctc"
     assert config.model.channels == [32, 64, 128]
+    assert config.model.normalization == "channel_layer_norm"
+    assert config.model.temporal_downsample == 4
     assert config.selection.evaluate_test_during_training is False
 
 
@@ -167,15 +172,27 @@ def test_data_bundle_loads_only_after_a_three_lecture_audit(tmp_path: Path):
         ),
     )
 
-    bundle = build_reader_data_bundle(config, project_root=tmp_path)
+    bundle = build_reader_training_data_bundle(config, project_root=tmp_path)
 
     assert bundle.contract.audit.passed
     assert bundle.tokenizer.spec.sha256 == vocabulary.spec.sha256
     assert bundle.sample_counts == {
         "train": 1,
         "validation": 1,
-        "test": 1,
     }
+    assert not hasattr(bundle, "test_loader")
     validation_batch = next(iter(bundle.validation_loader))
     assert validation_batch.texts == ("ba",)
     assert validation_batch.images.shape[0:3] == (1, 1, 8)
+
+    test_bundle = build_reader_test_data_bundle(config, project_root=tmp_path)
+    assert test_bundle.sample_count == 1
+    assert next(iter(test_bundle.test_loader)).texts == ("aa",)
+
+
+def test_cnn_config_rejects_non_power_of_two_downsampling():
+    payload = load_reader_experiment_config(CONFIG_PATH).model_dump(mode="json")
+    payload["model"]["temporal_downsample"] = 3
+
+    with pytest.raises(ValueError, match="power of two"):
+        ReaderExperimentConfig.model_validate(payload)

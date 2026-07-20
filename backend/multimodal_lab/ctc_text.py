@@ -245,10 +245,26 @@ def greedy_ctc_decode(
     input_lengths: Tensor,
     tokenizer: CharacterTokenizer,
 ) -> list[str]:
+    token_sequences = greedy_ctc_decode_token_ids(
+        logits,
+        input_lengths,
+        blank_id=tokenizer.blank_id,
+        vocabulary_size=tokenizer.vocabulary_size,
+    )
+    return [tokenizer.decode(token_ids) for token_ids in token_sequences]
+
+
+def greedy_ctc_decode_token_ids(
+    logits: Tensor,
+    input_lengths: Tensor,
+    *,
+    blank_id: int,
+    vocabulary_size: int,
+) -> list[list[int]]:
     if logits.ndim != 3:
         raise CtcTextError("CTC logits must have shape [batch, time, vocab].")
-    batch_size, max_time, vocabulary_size = logits.shape
-    if vocabulary_size != tokenizer.vocabulary_size:
+    batch_size, max_time, output_vocabulary_size = logits.shape
+    if output_vocabulary_size != vocabulary_size:
         raise CtcTextError(
             "Model vocabulary size does not match the frozen tokenizer."
         )
@@ -256,14 +272,14 @@ def greedy_ctc_decode(
         raise CtcTextError("input_lengths must contain one value per sample.")
 
     best_paths = logits.argmax(dim=-1).detach().to(device="cpu")
-    decoded: list[str] = []
+    decoded: list[list[int]] = []
     for sample_index, length_value in enumerate(input_lengths.tolist()):
         length = int(length_value)
         if length <= 0 or length > max_time:
             raise CtcTextError("A decode length is outside the logit time axis.")
         token_ids = collapse_ctc_path(
             best_paths[sample_index, :length].tolist(),
-            blank_id=tokenizer.blank_id,
+            blank_id=blank_id,
         )
-        decoded.append(tokenizer.decode(token_ids))
+        decoded.append(token_ids)
     return decoded

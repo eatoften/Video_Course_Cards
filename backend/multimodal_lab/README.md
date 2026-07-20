@@ -20,8 +20,10 @@ artifacts. It deliberately does not introduce a general experiment platform.
 | Reader study | `page_reading.py`, `page_reading_evaluation.py`, `run_page_reading_comparison.py` | Native-text and OCR baselines |
 | Diagnostic model | `ctc_overfit.py`, `run_ctc_overfit.py` | Pipeline overfit gate, not a benchmark |
 | Experiment contract | `experiment_protocol.py`, `experiment_tracking.py` | Leakage audit and local run provenance |
-| Reader configuration | `reader_config.py`, `configs/reader_cnn_v1.json` | Frozen data hashes and declared first-CNN hyperparameters; no model layers |
-| Shared reader engine | `training/reader_data.py`, `reader_protocol.py`, `reader_trainer.py`, `reader_evaluator.py` | Model-independent loading, output contract, optimization, and metrics |
+| Reader configuration | `reader_config.py`, `configs/reader_cnn_v1.json` | Frozen data hashes, architecture, optimization, and selection policy |
+| Reader models | `models/cnn_ctc.py`, `models/reader_layers.py` | First CNN encoder and reusable CTC projection head |
+| Shared reader engine | `training/reader_data.py`, `reader_protocol.py`, `reader_trainer.py`, `reader_evaluator.py`, `reader_checkpoint.py` | Split-isolated loading, output contract, optimization, metrics, and hash-bound checkpoints |
+| Formal reader commands | `run_reader_overfit.py`, `run_train_reader.py`, `run_evaluate_reader.py` | Capacity gate, train/validation selection, and separate held-out evaluation |
 | Metrics | `metrics.py` | Reusable metric implementations |
 
 All command-line entry points are named `run_*.py`. A module without that
@@ -49,28 +51,39 @@ A formal reader result is invalid unless all of the following hold:
    model-selection rule.
 5. The test set is not used by a training or checkpoint-selection command.
 
-## Current pre-model boundary
+## Current formal baseline
 
-The shared data and experiment engine now exists, but no formal reader model
-has been implemented. The current boundary is intentional:
+Assignment 4 now contains one frozen handwritten CNN-CTC baseline:
 
 ```text
 multimodal_lab/
   configs/
-    reader_cnn_v1.json       # declaration only
+    reader_cnn_v1.json
+  models/
+    cnn_ctc.py
+    reader_layers.py
   training/
+    reader_checkpoint.py
     reader_data.py
     reader_protocol.py
     reader_trainer.py
     reader_evaluator.py
-  models/                    # intentionally absent
+  run_reader_overfit.py
+  run_train_reader.py
+  run_evaluate_reader.py
 ```
 
-The next handwritten assignment may add `models/cnn_ctc.py`. The later ViT
-must use the same data bundle, tokenizer, output contract, trainer, evaluator,
-split, and checkpoint-selection rule. Model-specific branches in the training
-loop are a design failure: the controlled experiment changes the encoder, not
-the protocol.
+The CNN has 118,307 parameters and passed the 32-distinct-line capacity gate.
+Validation selected epoch 35 without access to test data. Its frozen
+Lecture 4 result is CER 0.2723, WER 0.8750, and 4/67 exact lines. The test was
+opened once, and CNN v1 must not be tuned against it.
+
+The later ViT must reuse the data, tokenizer, output contract, CTC head,
+trainer, evaluator, split, metrics, and checkpoint-selection rule. Model-
+specific branches in the training loop are a design failure: the controlled
+experiment changes the visual encoder, not the protocol. Because only one test
+lecture exists, a meaningful next comparison should add lectures or declare a
+new evaluation policy before another test inspection.
 
 Create another package only when it has at least two concrete implementations
 or removes real duplication. Do not add registry, plugin, dependency-injection,
@@ -97,6 +110,13 @@ docs/<assignment study>.md
 
 Never commit raw frames, line crops, optimizer state, model checkpoints, or an
 entire local run directory.
+
+The formal CNN methods and result are tracked in:
+
+```text
+docs/Multimodal CNN reader study.md
+docs/experiments/assignment_4_cnn_reader_results.json
+```
 
 ## Dependency rules
 

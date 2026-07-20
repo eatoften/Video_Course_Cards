@@ -40,6 +40,11 @@ class CnnCtcEncoderConfig(BaseModel):
     temporal_downsample: int = Field(default=4, ge=1)
     output_features: int = Field(gt=0)
     dropout: float = Field(ge=0, lt=1)
+    normalization: Literal["channel_layer_norm"] = "channel_layer_norm"
+    activation: Literal["gelu"] = "gelu"
+    pooling: Literal["max_pool_2x2"] = "max_pool_2x2"
+    height_reduction: Literal["mean"] = "mean"
+    blank_logit_bias: float = -1.0
 
     @field_validator("channels")
     @classmethod
@@ -47,6 +52,19 @@ class CnnCtcEncoderConfig(BaseModel):
         if any(channel <= 0 for channel in channels):
             raise ValueError("CNN channels must be positive.")
         return channels
+
+    @model_validator(mode="after")
+    def validate_spatial_contract(self) -> Self:
+        if self.kernel_size % 2 == 0:
+            raise ValueError("The same-padding CNN requires an odd kernel size.")
+        if self.temporal_downsample & (self.temporal_downsample - 1):
+            raise ValueError("temporal_downsample must be a power of two.")
+        pooling_stages = self.temporal_downsample.bit_length() - 1
+        if pooling_stages > len(self.channels):
+            raise ValueError(
+                "temporal_downsample requires more pooling stages than blocks."
+            )
+        return self
 
 
 class ReaderOptimizationConfig(BaseModel):
@@ -74,6 +92,14 @@ class ReaderExperimentConfig(BaseModel):
     data: ReaderDataConfig
     optimization: ReaderOptimizationConfig
     selection: ReaderSelectionConfig = Field(default_factory=ReaderSelectionConfig)
+
+    @model_validator(mode="after")
+    def validate_model_data_compatibility(self) -> Self:
+        if self.data.target_height < self.model.temporal_downsample:
+            raise ValueError(
+                "target_height is too small for the configured pooling stages."
+            )
+        return self
 
 
 class VerifiedReaderDataContract(BaseModel):

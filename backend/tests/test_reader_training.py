@@ -84,6 +84,31 @@ def test_evaluator_decodes_a_perfect_ctc_path():
     assert report.metrics.word_error_rate == 0
     assert report.metrics.exact_match_rate == 1
     assert report.predictions[0].prediction == "ab"
+    assert report.predictions[0].scored_reference == "ab"
+
+
+def test_evaluator_counts_unknown_as_one_character_token():
+    tokenizer = CharacterTokenizer.fit(["a"])
+    unknown_id = tokenizer.unknown_id
+    path = [0, unknown_id, 0]
+    logits = torch.full((1, len(path), tokenizer.vocabulary_size), -8.0)
+    for timestep, token_id in enumerate(path):
+        logits[0, timestep, token_id] = 8.0
+    model = FixedPathReader(logits)
+
+    report = evaluate_reader(
+        model,
+        [make_batch(("q",))],
+        tokenizer=tokenizer,
+        split=DatasetSplit.validation,
+        device="cpu",
+    )
+
+    assert report.metrics.character_error_rate == 0
+    assert report.metrics.unknown_reference_character_count == 1
+    assert report.predictions[0].prediction == "<unk>"
+    assert report.predictions[0].scored_reference == "\ufffd"
+    assert report.predictions[0].scored_prediction == "\ufffd"
 
 
 def test_evaluator_refuses_to_open_the_training_split():

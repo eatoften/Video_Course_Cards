@@ -410,6 +410,8 @@ class ReaderPrediction(BaseModel):
     sample_id: str = Field(min_length=1)
     reference: str = Field(min_length=1)
     prediction: str
+    scored_reference: str = Field(min_length=1)
+    scored_prediction: str
     exact_match: bool
 
 
