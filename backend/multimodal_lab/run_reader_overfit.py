@@ -14,13 +14,13 @@ from .page_reading import sha256_file
 from .reader_config import load_reader_experiment_config
 from .training.reader_overfit import (
     ReaderOverfitConfig,
-    run_cnn_overfit_gate,
+    run_reader_overfit_gate,
 )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run the formal CNN architecture's 32-line overfit gate."
+        description="Run a reader architecture's 32-line overfit gate."
     )
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
@@ -60,10 +60,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         parameters={
             **asdict(overfit),
             "config_sha256": config_sha256,
-            "channels": ",".join(map(str, experiment.model.channels)),
+            "model_kind": experiment.model.kind,
             "device": args.device,
         },
-        tags=["cnn", "ctc", "capacity-gate", "not-generalization"],
+        tags=[
+            experiment.model.kind.removesuffix("_ctc"),
+            "ctc",
+            "capacity-gate",
+            "not-generalization",
+        ],
     )
     recorder = ExperimentRunRecorder.start(
         spec,
@@ -73,11 +78,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     try:
-        run = run_cnn_overfit_gate(
+        run = run_reader_overfit_gate(
             experiment,
             project_root=Path(__file__).resolve().parents[1],
             config=overfit,
             device=args.device,
+            progress_callback=lambda payload: _record_progress(
+                payload,
+                output_path=recorder.run_dir / "live_overfit.jsonl",
+            ),
         )
         run_dir = recorder.run_dir
         config_path = run_dir / "reader_experiment_config.json"
@@ -85,6 +94,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         report_path = run_dir / "reader_overfit_report.json"
         predictions_path = run_dir / "reader_overfit_predictions.json"
         checkpoint_path = run_dir / "reader_overfit_checkpoint.pt"
+        progress_path = run_dir / "live_overfit.jsonl"
 
         config_path.write_text(
             experiment.model_dump_json(indent=2) + "\n",
@@ -137,6 +147,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "report": report_path,
                 "predictions": predictions_path,
                 "checkpoint": checkpoint_path,
+                "progress": progress_path,
             },
         )
     except BaseException as exc:
@@ -147,6 +158,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"run_dir={recorder.run_dir}")
     print(run.report.model_dump_json(indent=2))
     return 0 if run.report.passed else 2
+
+
+def _record_progress(
+    payload: dict[str, float | int],
+    *,
+    output_path: Path,
+) -> None:
+    line = json.dumps(payload, ensure_ascii=False)
+    with output_path.open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+        handle.flush()
+    print(line, flush=True)
 
 
 if __name__ == "__main__":

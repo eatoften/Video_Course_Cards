@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import random
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import torch
+from torch import nn
 
 from ..annotation_io import load_jsonl
 from ..ctc_text import (
@@ -22,7 +23,7 @@ from ..line_crop_dataset import (
     partition_by_lecture_split,
 )
 from ..metrics import levenshtein_distance
-from ..models import CnnCtcReader
+from ..models import build_reader_model
 from ..reader_config import ReaderExperimentConfig, verify_reader_data_contract
 from ..schemas import CtcOverfitReport, DatasetSplit, LineCropSample
 from .reader_trainer import configure_reproducibility
@@ -55,7 +56,7 @@ class ReaderOverfitConfig:
 class ReaderOverfitRun:
     report: CtcOverfitReport
     tokenizer: CharacterTokenizer
-    model: CnnCtcReader
+    model: nn.Module
     references: tuple[str, ...]
     predictions: tuple[str, ...]
 
@@ -94,12 +95,13 @@ def select_unique_train_samples(
     return sorted(selected, key=lambda item: item.sample_id)
 
 
-def run_cnn_overfit_gate(
+def run_reader_overfit_gate(
     experiment: ReaderExperimentConfig,
     *,
     project_root: str | Path,
     config: ReaderOverfitConfig | None = None,
     device: str = "cpu",
+    progress_callback: Callable[[dict[str, float | int]], None] | None = None,
 ) -> ReaderOverfitRun:
     overfit = config or ReaderOverfitConfig()
     contract = verify_reader_data_contract(experiment, project_root=project_root)
@@ -136,7 +138,7 @@ def run_cnn_overfit_gate(
         deterministic_algorithms=experiment.deterministic_algorithms,
     )
     configured_device = torch.device(device)
-    model = CnnCtcReader(
+    model = build_reader_model(
         experiment.model,
         tokenizer.vocabulary_size,
         blank_id=tokenizer.blank_id,
@@ -176,7 +178,7 @@ def run_cnn_overfit_gate(
                 blank_id=tokenizer.blank_id,
             )
             if not torch.isfinite(loss):
-                raise ReaderOverfitError("The CNN overfit loss became non-finite.")
+                raise ReaderOverfitError("The reader overfit loss became non-finite.")
             loss.backward()
             if any(
                 parameter.grad is not None
@@ -184,7 +186,7 @@ def run_cnn_overfit_gate(
                 for parameter in model.parameters()
             ):
                 raise ReaderOverfitError(
-                    "The CNN overfit gradients became non-finite."
+                    "The reader overfit gradients became non-finite."
                 )
             optimizer.step()
             steps_completed = step
@@ -197,6 +199,20 @@ def run_cnn_overfit_gate(
                         checked.logits,
                         checked.input_lengths,
                         tokenizer,
+                    )
+                if progress_callback is not None:
+                    progress_callback(
+                        {
+                            "step": step,
+                            "loss": float(loss.detach().item()),
+                            "exact_match_count": sum(
+                                prediction == reference
+                                for prediction, reference in zip(
+                                    predictions,
+                                    batch.texts,
+                                )
+                            ),
+                        }
                     )
                 if predictions == list(batch.texts):
                     break
@@ -257,4 +273,23 @@ def run_cnn_overfit_gate(
         model=model,
         references=tuple(references),
         predictions=tuple(predictions),
+    )
+
+
+def run_cnn_overfit_gate(
+    experiment: ReaderExperimentConfig,
+    *,
+    project_root: str | Path,
+    config: ReaderOverfitConfig | None = None,
+    device: str = "cpu",
+    progress_callback: Callable[[dict[str, float | int]], None] | None = None,
+) -> ReaderOverfitRun:
+    """Historical name retained for the frozen CNN v1 experiment."""
+
+    return run_reader_overfit_gate(
+        experiment,
+        project_root=project_root,
+        config=config,
+        device=device,
+        progress_callback=progress_callback,
     )

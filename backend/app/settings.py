@@ -1,6 +1,7 @@
 import os
 from functools import cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +17,7 @@ class LLMSettings(BaseModel):
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     max_tokens: int = Field(default=8192, ge=1)
     timeout_seconds: float = Field(default=120.0, ge=1.0)
+    reasoning_effort: Literal["none", "low", "medium", "high"] | None = "none"
 
 
 class EmbeddingSettings(BaseModel):
@@ -191,6 +193,21 @@ def get_app_path_settings() -> AppPathSettings:
     )
 
 
+def _llm_reasoning_effort(
+    env_file_values: dict[str, str],
+) -> Literal["none", "low", "medium", "high"] | None:
+    value = _env(
+        "VCC_LLM_REASONING_EFFORT",
+        "none",
+        env_file_values,
+    ).strip().lower()
+    if value in {"", "default", "null", "off"}:
+        return None
+    if value in {"none", "low", "medium", "high"}:
+        return value
+    return "none"
+
+
 @cache
 def get_llm_settings() -> LLMSettings:
     env_file_values = _read_env_file()
@@ -219,6 +236,7 @@ def get_llm_settings() -> LLMSettings:
             120.0,
             env_file_values,
         ),
+        reasoning_effort=_llm_reasoning_effort(env_file_values),
     )
 
 

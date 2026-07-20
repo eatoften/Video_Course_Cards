@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import torch
 from PIL import Image
 
 from multimodal_lab.annotation_io import write_jsonl
@@ -9,6 +10,7 @@ from multimodal_lab.experiment_protocol import audit_reader_dataset
 from multimodal_lab.page_reading import sha256_file
 from multimodal_lab.reader_config import (
     CnnCtcEncoderConfig,
+    ReaderAugmentationConfig,
     ReaderDataConfig,
     ReaderExperimentConfig,
     ReaderOptimizationConfig,
@@ -34,6 +36,12 @@ CONFIG_PATH = (
     / "configs"
     / "reader_cnn_v1.json"
 )
+CNN_V2_CONFIG_PATH = (
+    Path(__file__).parents[1]
+    / "multimodal_lab"
+    / "configs"
+    / "reader_cnn_v2.json"
+)
 
 
 def test_checked_in_cnn_config_freezes_the_architecture_choices():
@@ -44,6 +52,21 @@ def test_checked_in_cnn_config_freezes_the_architecture_choices():
     assert config.model.normalization == "channel_layer_norm"
     assert config.model.temporal_downsample == 4
     assert config.selection.evaluate_test_during_training is False
+
+
+def test_cnn_v2_keeps_architecture_and_binds_shared_data_policy():
+    v1 = load_reader_experiment_config(CONFIG_PATH)
+    v2 = load_reader_experiment_config(CNN_V2_CONFIG_PATH)
+
+    assert v2.model == v1.model
+    assert v2.seed == v1.seed
+    assert v2.data.dataset_sha256 == (
+        "19c572ca531b6afb7e5f872e28be024a393d7b524824fa768b33104698bfdbb9"
+    )
+    assert v2.data.augmentation_sha256 == (
+        "a81e496e1ea10adf60c1f7fe3569163fd4db3c185f9c23143df38b2742a1a6e6"
+    )
+    assert v2.selection == v1.selection
 
 
 def test_reader_config_forbids_test_evaluation_during_training():
@@ -139,6 +162,27 @@ def test_data_bundle_loads_only_after_a_three_lecture_audit(tmp_path: Path):
         encoding="utf-8",
     )
     vocabulary = CharacterTokenizer.fit(["ab"])
+    augmentation_path = tmp_path / "augmentation.json"
+    augmentation_path.write_text(
+        ReaderAugmentationConfig(
+            policy_id="shared-test-policy",
+            seed=17,
+            rotation_probability=1,
+            maximum_rotation_degrees=1,
+            contrast_probability=1,
+            minimum_contrast=0.8,
+            maximum_contrast=1.2,
+            brightness_probability=1,
+            minimum_brightness=0.9,
+            maximum_brightness=1.1,
+            blur_probability=1,
+            maximum_blur_radius=0.5,
+            noise_probability=1,
+            maximum_noise_standard_deviation=0.02,
+        ).model_dump_json(indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
     config = ReaderExperimentConfig(
         experiment_id="temporary-data-contract-test",
         seed=7,
@@ -161,6 +205,8 @@ def test_data_bundle_loads_only_after_a_three_lecture_audit(tmp_path: Path):
             batch_size=2,
             num_workers=0,
             pin_memory=False,
+            augmentation_path=augmentation_path.name,
+            augmentation_sha256=sha256_file(augmentation_path),
         ),
         optimization=ReaderOptimizationConfig(
             epochs=1,
@@ -184,6 +230,20 @@ def test_data_bundle_loads_only_after_a_three_lecture_audit(tmp_path: Path):
     validation_batch = next(iter(bundle.validation_loader))
     assert validation_batch.texts == ("ba",)
     assert validation_batch.images.shape[0:3] == (1, 1, 8)
+
+    train_dataset = bundle.train_loader.dataset
+    train_dataset.set_epoch(1)
+    first_train_image = train_dataset[0].image
+    train_dataset.set_epoch(2)
+    second_train_image = train_dataset[0].image
+    assert not torch.equal(first_train_image, second_train_image)
+
+    validation_dataset = bundle.validation_loader.dataset
+    validation_dataset.set_epoch(1)
+    first_validation_image = validation_dataset[0].image
+    validation_dataset.set_epoch(2)
+    second_validation_image = validation_dataset[0].image
+    assert torch.equal(first_validation_image, second_validation_image)
 
     test_bundle = build_reader_test_data_bundle(config, project_root=tmp_path)
     assert test_bundle.sample_count == 1

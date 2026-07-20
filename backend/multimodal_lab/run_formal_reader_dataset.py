@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .annotation_io import load_jsonl, write_jsonl
 from .formal_reader_dataset import (
+    build_verbatim_deck_references,
     build_source_aligned_line_crops,
     build_synthetic_line_crops,
     combine_line_crop_components,
@@ -15,13 +16,21 @@ from .formal_reader_dataset import (
     source_aligned_cropper_version,
 )
 from .experiment_protocol import audit_reader_dataset
-from .line_crop_dataset import make_lecture_level_split
+from .line_crop_dataset import (
+    make_explicit_lecture_split,
+    make_lecture_level_split,
+)
 from .page_reading import sha256_file
 from .schemas import (
     LineCropReviewRecord,
     LineCropSample,
     PageContent,
     StablePageReference,
+)
+from .source_line_alignment import (
+    SourceLineAlignmentOverride,
+    SourceLineAlignmentPolicy,
+    align_source_line_reviews,
 )
 
 
@@ -53,6 +62,23 @@ def build_parser() -> argparse.ArgumentParser:
     reviewed.add_argument("--expected-page-contents-sha256")
     reviewed.add_argument("--expected-reviews-sha256")
 
+    align = subparsers.add_parser(
+        "source-align",
+        help="Align every OCR polygon to frozen official-deck line text.",
+    )
+    align.add_argument("--references", required=True, type=Path)
+    align.add_argument("--page-contents", required=True, type=Path)
+    align.add_argument("--output", required=True, type=Path)
+    align.add_argument("--report", required=True, type=Path)
+    align.add_argument("--overrides", type=Path)
+    align.add_argument("--minimum-include-score", type=float, default=0.82)
+    align.add_argument("--review-band-score", type=float, default=0.65)
+    align.add_argument("--minimum-label-characters", type=int, default=2)
+    align.add_argument("--maximum-token-delta", type=int, default=2)
+    align.add_argument("--expected-references-sha256")
+    align.add_argument("--expected-page-contents-sha256")
+    align.add_argument("--expected-overrides-sha256")
+
     synthetic = subparsers.add_parser(
         "synthetic",
         help="Render deterministic train-only line images from gold text.",
@@ -65,8 +91,24 @@ def build_parser() -> argparse.ArgumentParser:
     synthetic.add_argument("--variants-per-line", type=int, default=4)
     synthetic.add_argument("--min-characters", type=int, default=2)
     synthetic.add_argument("--max-characters", type=int, default=48)
+    synthetic.add_argument(
+        "--content-policy",
+        choices=("alphabetic", "alphanumeric"),
+        default="alphabetic",
+    )
     synthetic.add_argument("--expected-references-sha256")
     synthetic.add_argument("--expected-font-sha256")
+
+    deck_references = subparsers.add_parser(
+        "deck-references",
+        help="Replace page summaries with verbatim official-PDF text.",
+    )
+    deck_references.add_argument("--base-references", required=True, type=Path)
+    deck_references.add_argument("--source-deck", required=True, type=Path)
+    deck_references.add_argument("--output", required=True, type=Path)
+    deck_references.add_argument("--manifest", required=True, type=Path)
+    deck_references.add_argument("--expected-base-references-sha256")
+    deck_references.add_argument("--expected-source-deck-sha256")
 
     combine = subparsers.add_parser(
         "combine",
@@ -86,6 +128,9 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--seed", type=int, default=1)
     audit.add_argument("--validation-fraction", type=float, default=0.2)
     audit.add_argument("--test-fraction", type=float, default=0.2)
+    audit.add_argument("--train-lecture", action="append", default=[])
+    audit.add_argument("--validation-lecture", action="append", default=[])
+    audit.add_argument("--test-lecture", action="append", default=[])
     return parser
 
 
@@ -95,8 +140,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _review_template(args)
     if args.command == "reviewed":
         return _reviewed(args)
+    if args.command == "source-align":
+        return _source_align(args)
     if args.command == "synthetic":
         return _synthetic(args)
+    if args.command == "deck-references":
+        return _deck_references(args)
     if args.command == "combine":
         return _combine(args)
     if args.command == "audit":
@@ -173,6 +222,60 @@ def _reviewed(args: argparse.Namespace) -> int:
     return 0
 
 
+def _source_align(args: argparse.Namespace) -> int:
+    source_hashes = {
+        "references": _verify_hash(
+            args.references,
+            args.expected_references_sha256,
+            label="references",
+        ),
+        "page_contents": _verify_hash(
+            args.page_contents,
+            args.expected_page_contents_sha256,
+            label="page contents",
+        ),
+    }
+    overrides: list[SourceLineAlignmentOverride] = []
+    if args.overrides is not None:
+        source_hashes["overrides"] = _verify_hash(
+            args.overrides,
+            args.expected_overrides_sha256,
+            label="alignment overrides",
+        )
+        overrides = load_jsonl(args.overrides, SourceLineAlignmentOverride)
+    policy = SourceLineAlignmentPolicy(
+        minimum_include_score=args.minimum_include_score,
+        review_band_score=args.review_band_score,
+        minimum_label_characters=args.minimum_label_characters,
+        maximum_token_delta=args.maximum_token_delta,
+    )
+    reviews, records, summary = align_source_line_reviews(
+        load_jsonl(args.references, StablePageReference),
+        load_jsonl(args.page_contents, PageContent),
+        policy=policy,
+        overrides=overrides,
+    )
+    write_jsonl(args.output, reviews)
+    report = {
+        **summary.model_dump(mode="json"),
+        "source_hashes": source_hashes,
+        "policy": policy.model_dump(mode="json"),
+        "reviews_path": str(args.output),
+        "reviews_sha256": sha256_file(args.output),
+        "records": [record.model_dump(mode="json") for record in records],
+    }
+    _write_json(args.report, report)
+    _print_json(
+        {
+            **summary.model_dump(mode="json"),
+            "reviews_sha256": report["reviews_sha256"],
+            "report": str(args.report),
+            "report_sha256": sha256_file(args.report),
+        }
+    )
+    return 0
+
+
 def _synthetic(args: argparse.Namespace) -> int:
     source_hashes = {
         "references": _verify_hash(
@@ -196,6 +299,7 @@ def _synthetic(args: argparse.Namespace) -> int:
         variants_per_line=args.variants_per_line,
         min_characters=args.min_characters,
         max_characters=args.max_characters,
+        content_policy=args.content_policy,
     )
     samples_path = args.output_dir / "line_crop_samples.jsonl"
     write_jsonl(samples_path, samples)
@@ -209,9 +313,45 @@ def _synthetic(args: argparse.Namespace) -> int:
             "variants_per_line": args.variants_per_line,
             "min_characters": args.min_characters,
             "max_characters": args.max_characters,
+            "content_policy": args.content_policy,
         },
     )
     _write_json(args.output_dir / "component_manifest.json", manifest)
+    _print_json(manifest)
+    return 0
+
+
+def _deck_references(args: argparse.Namespace) -> int:
+    source_hashes = {
+        "base_references": _verify_hash(
+            args.base_references,
+            args.expected_base_references_sha256,
+            label="base references",
+        ),
+        "source_deck": _verify_hash(
+            args.source_deck,
+            args.expected_source_deck_sha256,
+            label="source deck",
+        ),
+    }
+    references = build_verbatim_deck_references(
+        load_jsonl(args.base_references, StablePageReference),
+        source_deck_path=args.source_deck,
+    )
+    write_jsonl(args.output, references)
+    manifest = {
+        "schema_version": "1.0",
+        "mode": "official_deck_verbatim_references",
+        "references_path": str(args.output),
+        "references_sha256": sha256_file(args.output),
+        "reference_count": len(references),
+        "line_count": sum(
+            len(reference.gold_text.splitlines())
+            for reference in references
+        ),
+        "source_hashes": source_hashes,
+    }
+    _write_json(args.manifest, manifest)
     _print_json(manifest)
     return 0
 
@@ -246,12 +386,32 @@ def _combine(args: argparse.Namespace) -> int:
 def _audit(args: argparse.Namespace) -> int:
     samples = load_jsonl(args.dataset, LineCropSample)
     dataset_hash = sha256_file(args.dataset)
-    split = make_lecture_level_split(
-        samples,
-        dataset_sha256=dataset_hash,
-        seed=args.seed,
-        validation_fraction=args.validation_fraction,
-        test_fraction=args.test_fraction,
+    explicit_groups = (
+        args.train_lecture,
+        args.validation_lecture,
+        args.test_lecture,
+    )
+    if any(explicit_groups) and not all(explicit_groups):
+        raise ValueError(
+            "Explicit audit requires train, validation, and test lectures."
+        )
+    split = (
+        make_explicit_lecture_split(
+            samples,
+            dataset_sha256=dataset_hash,
+            seed=args.seed,
+            train_lecture_ids=args.train_lecture,
+            validation_lecture_ids=args.validation_lecture,
+            test_lecture_ids=args.test_lecture,
+        )
+        if all(explicit_groups)
+        else make_lecture_level_split(
+            samples,
+            dataset_sha256=dataset_hash,
+            seed=args.seed,
+            validation_fraction=args.validation_fraction,
+            test_fraction=args.test_fraction,
+        )
     )
     report = audit_reader_dataset(
         samples,

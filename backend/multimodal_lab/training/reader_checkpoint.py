@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import torch
+from torch import nn
 
 from ..ctc_text import CharacterTokenizer
-from ..models import CnnCtcReader
 from ..reader_config import ReaderExperimentConfig
 from ..schemas import CharacterVocabularySpec
 
@@ -31,7 +31,7 @@ def reader_checkpoint_metadata(
 def load_frozen_reader_checkpoint(
     path: str | Path,
     *,
-    model: CnnCtcReader,
+    model: nn.Module,
     config: ReaderExperimentConfig,
     tokenizer: CharacterTokenizer,
     experiment_config_sha256: str,

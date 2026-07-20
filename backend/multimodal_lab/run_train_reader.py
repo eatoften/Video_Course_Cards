@@ -3,13 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 from collections.abc import Sequence
+from functools import partial
 from pathlib import Path
 
 import torch
 
 from .experiment_protocol import ExperimentPhase, ExperimentRunSpec, ExperimentTask
 from .experiment_tracking import ExperimentRunRecorder, ExperimentRunStatus
-from .models import CnnCtcReader
+from .models import build_reader_model
 from .page_reading import sha256_file
 from .reader_config import load_reader_experiment_config
 from .schemas import DatasetSplit, ReaderEpochRecord
@@ -29,12 +30,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--cpu-thread-count", type=int, default=None)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _validate_device(args.device)
+    _configure_cpu_threads(args.device, args.cpu_thread_count)
     config = load_reader_experiment_config(args.config)
     config_sha256 = sha256_file(args.config)
     configure_reproducibility(
@@ -45,7 +48,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         config,
         project_root=Path(__file__).resolve().parents[1],
     )
-    model = CnnCtcReader(
+    model = build_reader_model(
         config.model,
         data.tokenizer.vocabulary_size,
         blank_id=data.tokenizer.blank_id,
@@ -64,13 +67,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         parameters={
             "config_sha256": config_sha256,
             "parameter_count": parameter_count,
+            "vocabulary_sha256": data.tokenizer.spec.sha256,
+            "augmentation_sha256": config.data.augmentation_sha256 or "disabled",
+            "train_sample_count": data.sample_counts[DatasetSplit.train],
+            "validation_sample_count": data.sample_counts[DatasetSplit.validation],
             "epochs": config.optimization.epochs,
             "learning_rate": config.optimization.learning_rate,
             "weight_decay": config.optimization.weight_decay,
             "batch_size": config.data.batch_size,
             "device": args.device,
+            "cpu_thread_count": torch.get_num_threads(),
         },
-        tags=["cnn", "ctc", "train-validation-only"],
+        tags=[
+            config.model.kind.removesuffix("_ctc"),
+            "ctc",
+            "train-validation-only",
+        ],
     )
     recorder = ExperimentRunRecorder.start(
         spec,
@@ -87,13 +99,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         training_report_path = run_dir / "training_report.json"
         validation_report_path = run_dir / "validation_report.json"
         code_fingerprint_path = run_dir / "code_fingerprint.json"
+        live_epochs_path = run_dir / "live_epochs.jsonl"
 
         config_path.write_text(
             config.model_dump_json(indent=2) + "\n",
             encoding="utf-8",
         )
         data.tokenizer.save(vocabulary_path)
-        _write_code_fingerprint(code_fingerprint_path, args.config)
+        _write_code_fingerprint(
+            code_fingerprint_path,
+            args.config,
+            augmentation_path=config.data.augmentation_path,
+        )
         training_report = fit_reader(
             model,
             data.train_loader,
@@ -106,7 +123,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 config,
                 experiment_config_sha256=config_sha256,
             ),
-            epoch_callback=_print_epoch,
+            epoch_callback=partial(
+                _record_epoch,
+                output_path=live_epochs_path,
+            ),
         )
         load_frozen_reader_checkpoint(
             checkpoint_path,
@@ -151,6 +171,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "training_report": training_report_path,
                 "validation_report": validation_report_path,
                 "code_fingerprint": code_fingerprint_path,
+                "epoch_log": live_epochs_path,
             },
         )
     except BaseException as exc:
@@ -164,22 +185,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def _print_epoch(record: ReaderEpochRecord) -> None:
-    print(
-        json.dumps(
-            {
-                "epoch": record.epoch,
-                "train_loss": record.train_loss,
-                "validation_cer": record.validation.character_error_rate,
-                "validation_wer": record.validation.word_error_rate,
-                "validation_exact_match_rate": (
-                    record.validation.exact_match_rate
-                ),
-            },
-            ensure_ascii=False,
-        ),
-        flush=True,
-    )
+def _record_epoch(record: ReaderEpochRecord, *, output_path: Path) -> None:
+    payload = {
+        "epoch": record.epoch,
+        "train_loss": record.train_loss,
+        "validation_cer": record.validation.character_error_rate,
+        "validation_wer": record.validation.word_error_rate,
+        "validation_exact_match_rate": record.validation.exact_match_rate,
+    }
+    line = json.dumps(payload, ensure_ascii=False)
+    with output_path.open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+        handle.flush()
+    print(line, flush=True)
 
 
 def _validate_device(device: str) -> None:
@@ -188,17 +206,41 @@ def _validate_device(device: str) -> None:
         raise ValueError("CUDA was requested but this PyTorch build has no CUDA.")
 
 
-def _write_code_fingerprint(output: Path, config_path: Path) -> None:
+def _configure_cpu_threads(
+    device: str,
+    cpu_thread_count: int | None,
+) -> None:
+    if cpu_thread_count is not None and cpu_thread_count <= 0:
+        raise ValueError("cpu_thread_count must be positive.")
+    if torch.device(device).type == "cpu" and cpu_thread_count is not None:
+        torch.set_num_threads(cpu_thread_count)
+
+
+def _write_code_fingerprint(
+    output: Path,
+    config_path: Path,
+    *,
+    augmentation_path: str | None,
+) -> None:
     package_root = Path(__file__).resolve().parent
     source_paths = [
+        Path(__file__).resolve(),
+        package_root / "models" / "factory.py",
         package_root / "models" / "cnn_ctc.py",
+        package_root / "models" / "vit_ctc.py",
         package_root / "models" / "reader_layers.py",
+        package_root / "line_crop_dataset.py",
+        package_root / "reader_config.py",
         package_root / "training" / "reader_data.py",
         package_root / "training" / "reader_trainer.py",
         package_root / "training" / "reader_evaluator.py",
         package_root / "ctc_text.py",
         config_path.resolve(),
     ]
+    if augmentation_path is not None:
+        source_paths.append(
+            (package_root.parent / augmentation_path).resolve()
+        )
     payload = {str(path): sha256_file(path) for path in source_paths}
     output.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",

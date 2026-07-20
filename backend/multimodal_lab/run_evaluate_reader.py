@@ -8,7 +8,7 @@ import torch
 
 from .experiment_protocol import ExperimentPhase, ExperimentRunSpec, ExperimentTask
 from .experiment_tracking import ExperimentRunRecorder, ExperimentRunStatus
-from .models import CnnCtcReader
+from .models import build_reader_model
 from .page_reading import sha256_file
 from .reader_config import load_reader_experiment_config
 from .schemas import DatasetSplit
@@ -27,12 +27,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-checkpoint-sha256", required=True)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--cpu-thread-count", type=int, default=None)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _validate_device(args.device)
+    _configure_cpu_threads(args.device, args.cpu_thread_count)
     expected_checkpoint_hash = args.expected_checkpoint_sha256.strip().lower()
     actual_checkpoint_hash = sha256_file(args.checkpoint)
     if actual_checkpoint_hash != expected_checkpoint_hash:
@@ -51,7 +53,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         config,
         project_root=Path(__file__).resolve().parents[1],
     )
-    model = CnnCtcReader(
+    model = build_reader_model(
         config.model,
         data.tokenizer.vocabulary_size,
         blank_id=data.tokenizer.blank_id,
@@ -79,8 +81,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             "checkpoint_sha256": actual_checkpoint_hash,
             "test_sample_count": data.sample_count,
             "device": args.device,
+            "cpu_thread_count": torch.get_num_threads(),
         },
-        tags=["cnn", "ctc", "held-out-test", "no-selection"],
+        tags=[
+            config.model.kind.removesuffix("_ctc"),
+            "ctc",
+            "held-out-test",
+            "no-selection",
+        ],
     )
     recorder = ExperimentRunRecorder.start(
         spec,
@@ -132,6 +140,16 @@ def _validate_device(device: str) -> None:
     configured = torch.device(device)
     if configured.type == "cuda" and not torch.cuda.is_available():
         raise ValueError("CUDA was requested but this PyTorch build has no CUDA.")
+
+
+def _configure_cpu_threads(
+    device: str,
+    cpu_thread_count: int | None,
+) -> None:
+    if cpu_thread_count is not None and cpu_thread_count <= 0:
+        raise ValueError("cpu_thread_count must be positive.")
+    if torch.device(device).type == "cpu" and cpu_thread_count is not None:
+        torch.set_num_threads(cpu_thread_count)
 
 
 if __name__ == "__main__":

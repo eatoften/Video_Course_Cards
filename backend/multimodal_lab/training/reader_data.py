@@ -12,6 +12,7 @@ from ..ctc_text import CharacterTokenizer
 from ..line_crop_dataset import (
     LineCropBatch,
     LineCropDataset,
+    LineImageAugmentation,
     LineImageTransform,
     collate_line_crops,
     partition_by_lecture_split,
@@ -46,9 +47,15 @@ def build_reader_training_data_bundle(
     *,
     project_root: str | Path,
 ) -> ReaderTrainingDataBundle:
-    contract, tokenizer, partitions, transform = _load_verified_data(
+    contract, tokenizer, partitions = _load_verified_data(
         config,
         project_root=project_root,
+    )
+    train_transform = _make_transform(config, contract=contract, training=True)
+    evaluation_transform = _make_transform(
+        config,
+        contract=contract,
+        training=False,
     )
     generator = torch.Generator().manual_seed(config.seed)
     return ReaderTrainingDataBundle(
@@ -57,7 +64,7 @@ def build_reader_training_data_bundle(
         train_loader=_make_loader(
             partitions[DatasetSplit.train],
             contract=contract,
-            transform=transform,
+            transform=train_transform,
             config=config,
             shuffle=True,
             generator=generator,
@@ -65,7 +72,7 @@ def build_reader_training_data_bundle(
         validation_loader=_make_loader(
             partitions[DatasetSplit.validation],
             contract=contract,
-            transform=transform,
+            transform=evaluation_transform,
             config=config,
             shuffle=False,
         ),
@@ -81,7 +88,7 @@ def build_reader_test_data_bundle(
     *,
     project_root: str | Path,
 ) -> ReaderTestDataBundle:
-    contract, tokenizer, partitions, transform = _load_verified_data(
+    contract, tokenizer, partitions = _load_verified_data(
         config,
         project_root=project_root,
     )
@@ -92,7 +99,7 @@ def build_reader_test_data_bundle(
         test_loader=_make_loader(
             test_samples,
             contract=contract,
-            transform=transform,
+            transform=_make_transform(config, contract=contract, training=False),
             config=config,
             shuffle=False,
         ),
@@ -113,12 +120,43 @@ def _load_verified_data(
     )
     if tokenizer.spec.sha256 != config.data.expected_vocabulary_sha256:
         raise ValueError("Training-only tokenizer does not match the frozen hash.")
-    transform = LineImageTransform(
+    return contract, tokenizer, partitions
+
+
+def _make_transform(
+    config: ReaderExperimentConfig,
+    *,
+    contract: VerifiedReaderDataContract,
+    training: bool,
+) -> LineImageTransform:
+    policy = contract.augmentation
+    augmentation = LineImageAugmentation()
+    if training and policy is not None and policy.enabled:
+        augmentation = LineImageAugmentation(
+            enabled=True,
+            policy_id=policy.policy_id,
+            seed=policy.seed,
+            rotation_probability=policy.rotation_probability,
+            maximum_rotation_degrees=policy.maximum_rotation_degrees,
+            contrast_probability=policy.contrast_probability,
+            minimum_contrast=policy.minimum_contrast,
+            maximum_contrast=policy.maximum_contrast,
+            brightness_probability=policy.brightness_probability,
+            minimum_brightness=policy.minimum_brightness,
+            maximum_brightness=policy.maximum_brightness,
+            blur_probability=policy.blur_probability,
+            maximum_blur_radius=policy.maximum_blur_radius,
+            noise_probability=policy.noise_probability,
+            maximum_noise_standard_deviation=(
+                policy.maximum_noise_standard_deviation
+            ),
+        )
+    return LineImageTransform(
         target_height=config.data.target_height,
         max_width=config.data.max_image_width,
         verify_hashes=True,
+        augmentation=augmentation,
     )
-    return contract, tokenizer, partitions, transform
 
 
 def _make_loader(

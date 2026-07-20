@@ -1,4 +1,5 @@
 from typing import Literal
+from urllib.parse import urlsplit
 
 import httpx
 from pydantic import BaseModel
@@ -58,6 +59,7 @@ class LocalLLMClient:
         try:
             with httpx.Client(
                 timeout=self.settings.timeout_seconds,
+                trust_env=_should_trust_environment(self.settings.base_url),
             ) as client:
                 response = client.get(
                     self._url("/models"),
@@ -116,10 +118,16 @@ class LocalLLMClient:
 
         if response_format is not None:
             payload["response_format"] = response_format
+        if (
+            self.settings.provider == "ollama"
+            and self.settings.reasoning_effort is not None
+        ):
+            payload["reasoning_effort"] = self.settings.reasoning_effort
 
         try:
             with httpx.Client(
                 timeout=self.settings.timeout_seconds,
+                trust_env=_should_trust_environment(self.settings.base_url),
             ) as client:
                 response = client.post(
                     self._url("/chat/completions"),
@@ -187,3 +195,8 @@ def _extract_model_ids(data: object) -> list[str]:
             model_ids.append(model_id)
 
     return sorted(set(model_ids))
+
+
+def _should_trust_environment(base_url: str) -> bool:
+    hostname = (urlsplit(base_url).hostname or "").lower()
+    return hostname not in {"localhost", "127.0.0.1", "::1"}

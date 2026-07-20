@@ -1136,7 +1136,16 @@ analysis is a valid result; an untested architecture is not.
 
 ## 14. Assignment 5: Handwritten ViT Page Reader
 
-Estimated time: 1-2 weeks
+Status: completed on 2026-07-20 under the frozen Assignment 5.0-5.4
+protocol. See `Multimodal CNN ViT reader study.md` for the full method,
+negative-result analysis, artifact hashes, and downstream card cascade.
+
+Observed result: the parameter-matched scratch CNN reached `CER 0.1150` on the
+sealed Lecture 5 test, while the scratch ViT reached `CER 0.4461`. RapidOCR on
+the accepted stored polygons reached `CER 0.0071`. In the exploratory
+slide-text-only card cascade, usable conversion was `0.3750`, `0.0000`, and
+`0.6875` respectively. The negative ViT result is retained rather than tuned
+away after test access.
 
 ### Learning objectives
 

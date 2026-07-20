@@ -5,9 +5,11 @@ import io
 import random
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Literal
 
 import PIL
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from pypdf import PdfReader
 
 from .ctc_text import normalize_line_text
 from .line_crop_dataset import (
@@ -17,7 +19,7 @@ from .line_crop_dataset import (
     portable_dataset_path,
     resolve_dataset_path,
 )
-from .page_reading import sha256_file
+from .page_reading import clean_native_source_text, sha256_file
 from .schemas import (
     GoldTextScope,
     LineCropReviewRecord,
@@ -211,6 +213,7 @@ def build_synthetic_line_crops(
     variants_per_line: int = 4,
     min_characters: int = 2,
     max_characters: int = 48,
+    content_policy: Literal["alphabetic", "alphanumeric"] = "alphabetic",
 ) -> list[LineCropSample]:
     """Render train-only gold lines with deterministic video-like degradation."""
 
@@ -218,6 +221,8 @@ def build_synthetic_line_crops(
         raise LineCropDatasetError("variants_per_line must be positive.")
     if min_characters <= 0 or max_characters < min_characters:
         raise LineCropDatasetError("Invalid synthetic line length bounds.")
+    if content_policy not in {"alphabetic", "alphanumeric"}:
+        raise LineCropDatasetError("Unknown synthetic content policy.")
     font = Path(font_path).resolve() if font_path is not None else None
     if font is not None and not font.is_file():
         raise FileNotFoundError(f"Synthetic line font does not exist: {font}")
@@ -234,6 +239,7 @@ def build_synthetic_line_crops(
         font_sha256=font_sha256,
         min_characters=min_characters,
         max_characters=max_characters,
+        content_policy=content_policy,
     )
     samples: list[LineCropSample] = []
 
@@ -245,9 +251,14 @@ def build_synthetic_line_crops(
         line_index = -1
         for raw_line in reference.gold_text.splitlines():
             normalized = normalize_line_text(raw_line)
+            has_required_content = (
+                any(character.isalpha() for character in normalized)
+                if content_policy == "alphabetic"
+                else any(character.isalnum() for character in normalized)
+            )
             if not (
                 min_characters <= len(normalized) <= max_characters
-                and any(character.isalpha() for character in normalized)
+                and has_required_content
             ):
                 continue
             line_index += 1
@@ -345,11 +356,75 @@ def synthetic_line_builder_version(
     font_sha256: str,
     min_characters: int,
     max_characters: int,
+    content_policy: Literal["alphabetic", "alphanumeric"] = "alphabetic",
 ) -> str:
-    return (
-        "synthetic-line-v1:"
+    version = "synthetic-line-v1" if content_policy == "alphabetic" else "synthetic-line-v2"
+    suffix = (
         f"font-{font_sha256[:12]}:chars-{min_characters}-{max_characters}"
     )
+    if content_policy == "alphabetic":
+        return f"{version}:{suffix}"
+    return f"{version}:{suffix}:content-{content_policy}"
+
+
+def build_verbatim_deck_references(
+    base_references: Sequence[StablePageReference],
+    *,
+    source_deck_path: str | Path,
+) -> list[StablePageReference]:
+    """Replace semantic summaries with official PDF text for the same pages."""
+
+    deck_path = Path(source_deck_path).resolve()
+    if not deck_path.is_file():
+        raise FileNotFoundError(f"Official source deck does not exist: {deck_path}")
+    reader = PdfReader(deck_path)
+    source_pages = [page.extract_text() or "" for page in reader.pages]
+    return build_verbatim_deck_references_from_pages(
+        base_references,
+        source_pages=source_pages,
+    )
+
+
+def build_verbatim_deck_references_from_pages(
+    base_references: Sequence[StablePageReference],
+    *,
+    source_pages: Sequence[str],
+) -> list[StablePageReference]:
+    references: list[StablePageReference] = []
+    for base in base_references:
+        if base.page_number is None:
+            raise LineCropDatasetError(
+                f"Reference {base.page_event_id} has no official page number."
+            )
+        if base.page_number > len(source_pages):
+            raise LineCropDatasetError(
+                f"Reference {base.page_event_id} exceeds source deck length."
+            )
+        text = clean_native_source_text(
+            source_pages[base.page_number - 1],
+            discard_numeric_lines=False,
+        )
+        source_lines = text.splitlines()
+        page_marker = str(base.page_number)
+        text = "\n".join(
+            line
+            for line in source_lines
+            if line.strip() != page_marker
+        )
+        if not text.strip():
+            raise LineCropDatasetError(
+                f"Official page {base.page_number} contains no usable text."
+            )
+        references.append(
+            base.model_copy(
+                update={
+                    "page_event_id": f"{base.page_event_id}-deck-v2",
+                    "gold_text": text,
+                    "gold_text_scope": GoldTextScope.verbatim_content,
+                }
+            )
+        )
+    return references
 
 
 def _render_synthetic_line(

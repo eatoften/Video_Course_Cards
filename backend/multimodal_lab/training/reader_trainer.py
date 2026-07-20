@@ -117,6 +117,7 @@ def fit_reader(
     epochs_without_improvement = 0
 
     for epoch in range(1, optimization.epochs + 1):
+        _set_dataset_epoch(train_batches, epoch)
         train_loss = train_reader_epoch(
             model,
             train_batches,
@@ -175,3 +176,10 @@ def fit_reader(
         checkpoint_path=str(checkpoint),
         history=history,
     )
+
+
+def _set_dataset_epoch(batches: Iterable[LineCropBatch], epoch: int) -> None:
+    dataset = getattr(batches, "dataset", None)
+    set_epoch = getattr(dataset, "set_epoch", None)
+    if callable(set_epoch):
+        set_epoch(epoch)

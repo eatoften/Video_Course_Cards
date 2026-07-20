@@ -8,10 +8,12 @@ from pydantic import ValidationError
 from multimodal_lab.line_crop_dataset import (
     LineCropDataset,
     LineCropDatasetError,
+    LineImageAugmentation,
     LineImageTransform,
     build_exact_match_line_crops,
     collate_line_crops,
     make_lecture_level_split,
+    make_explicit_lecture_split,
     partition_by_lecture_split,
 )
 from multimodal_lab.metrics import normalize_ocr_text
@@ -156,6 +158,60 @@ def test_line_crop_dataset_preserves_aspect_ratio_and_pads_right(tmp_path):
     ) == 0
 
 
+def test_line_augmentation_is_deterministic_by_sample_and_epoch(tmp_path):
+    reference, content = make_page_fixture(tmp_path)
+    samples = build_exact_match_line_crops(
+        [reference],
+        [content],
+        image_root=tmp_path,
+        output_dir=tmp_path / "crops",
+    )
+    policy = LineImageAugmentation(
+        enabled=True,
+        policy_id="test-policy",
+        seed=17,
+        rotation_probability=1,
+        maximum_rotation_degrees=1,
+        contrast_probability=1,
+        minimum_contrast=0.8,
+        maximum_contrast=1.2,
+        brightness_probability=1,
+        minimum_brightness=0.9,
+        maximum_brightness=1.1,
+        blur_probability=1,
+        maximum_blur_radius=0.5,
+        noise_probability=1,
+        maximum_noise_standard_deviation=0.02,
+    )
+    transform = LineImageTransform(
+        target_height=16,
+        max_width=128,
+        augmentation=policy,
+    )
+    first_dataset = LineCropDataset(
+        samples,
+        image_root=tmp_path,
+        transform=transform,
+    )
+    second_dataset = LineCropDataset(
+        samples,
+        image_root=tmp_path,
+        transform=transform,
+    )
+
+    first_dataset.set_epoch(3)
+    second_dataset.set_epoch(3)
+    first = first_dataset[0].image
+    repeated = first_dataset[0].image
+    independent = second_dataset[0].image
+    first_dataset.set_epoch(4)
+    next_epoch = first_dataset[0].image
+
+    assert torch.equal(first, repeated)
+    assert torch.equal(first, independent)
+    assert not torch.equal(first, next_epoch)
+
+
 def test_lecture_level_split_is_deterministic_and_has_no_leakage():
     samples = [
         make_sample(f"lecture-{lecture}", lecture * 10 + item)
@@ -193,6 +249,26 @@ def test_formal_split_rejects_a_single_lecture():
 
     with pytest.raises(LineCropDatasetError, match="at least three lectures"):
         make_lecture_level_split(samples, dataset_sha256="c" * 64)
+
+
+def test_explicit_split_freezes_declared_lecture_roles():
+    samples = [
+        make_sample(lecture_id, index)
+        for index, lecture_id in enumerate(("train", "validation", "test"))
+    ]
+
+    split = make_explicit_lecture_split(
+        samples,
+        dataset_sha256="c" * 64,
+        seed=17,
+        train_lecture_ids=["train"],
+        validation_lecture_ids=["validation"],
+        test_lecture_ids=["test"],
+    )
+
+    assert split.train_lecture_ids == ["train"]
+    assert split.validation_lecture_ids == ["validation"]
+    assert split.test_lecture_ids == ["test"]
 
 
 def test_split_schema_rejects_lecture_overlap():

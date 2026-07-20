@@ -1,113 +1,177 @@
 <h1 align="center">Video Course Cards</h1>
 
 <p align="center">
-  Turn long course videos into timestamp-grounded knowledge cards, local card memory, and Obsidian-friendly Markdown.
+  <strong>A local-first system and research testbed for turning long technical lectures into timestamp-grounded knowledge.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/eatoften/Video_Course_Cards/releases/latest">Download</a>
-  |
-  <a href="docs/tauri-desktop.md">Desktop build</a>
-  |
-  <a href="docs/local-llm.md">Local LLM setup</a>
-  |
+  Video, audio, slides, and documents become evidence-linked cards that can be reviewed, retrieved, connected, and exported without sending the user's knowledge base to a hosted service.
+</p>
+
+<p align="center">
+  <a href="https://github.com/eatoften/Video_Course_Cards/releases/latest"><strong>Download for Windows</strong></a>
+  &nbsp;|&nbsp;
+  <a href="docs/Multimodal%20CNN%20ViT%20reader%20study.md">Research report</a>
+  &nbsp;|&nbsp;
+  <a href="docs/experiments/assignment_5_protocol_results.json">Results artifact</a>
+  &nbsp;|&nbsp;
+  <a href="docs/tauri-desktop.md">Desktop setup</a>
+  &nbsp;|&nbsp;
   <a href="docs/roadmap.md">Roadmap</a>
-  |
-  <a href="docs/rag-roadmap.md">RAG plan</a>
 </p>
 
 <p align="center">
+  <a href="https://github.com/eatoften/Video_Course_Cards/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/eatoften/Video_Course_Cards?label=release"></a>
+  <img alt="Research status" src="https://img.shields.io/badge/research-Assignment%205-7A3E9D">
   <img alt="Python 3.11" src="https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white">
-  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white">
-  <img alt="React" src="https://img.shields.io/badge/React-TypeScript-61DAFB?logo=react&logoColor=black">
-  <img alt="Tauri" src="https://img.shields.io/badge/Tauri-desktop-FFC131?logo=tauri&logoColor=black">
-  <img alt="SQLite" src="https://img.shields.io/badge/SQLite-local%20first-003B57?logo=sqlite&logoColor=white">
+  <img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white">
+  <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2.x-24C8DB?logo=tauri&logoColor=white">
+  <img alt="SQLite" src="https://img.shields.io/badge/storage-SQLite-003B57?logo=sqlite&logoColor=white">
 </p>
 
-## Overview
+## Abstract
 
-Video Course Cards is a local-first AI learning workspace for lecture videos. It turns a video into a transcript, cuts the transcript into semantic chunks, drafts grounded knowledge cards with a local LLM, organizes them into a course map, schedules evidence-backed recall with FSRS, and exports portable Markdown snapshots.
+Technical lectures are not useful merely because they can be transcribed. A learning system must preserve where a concept came from, distinguish supported claims from fluent inventions, connect related ideas, and retain enough source context for later review.
 
-The project is not trying to be another generic "chat with your transcript" demo. The core object is a **claim-grounded knowledge card**: a structured learning unit whose claims point back to transcript evidence and timestamps. And the future plan is to turn these cards in to a graph which can serve as an external world model that a controller can plan over, while a decoder can take the plan and graph as an input to generate answers.
+Video Course Cards studies this problem as both a usable local desktop application and a controlled multimodal research pipeline. The product path performs media validation, speech transcription, semantic chunking, grounded card generation, local retrieval, graph organization, spaced review, and Markdown export. The research path asks a narrower question: **how do visual reading errors propagate into generated learning artifacts?**
 
-```text
-video -> transcript -> semantic chunks -> grounded cards -> course map / review / graph -> Markdown export
-```
-
-SQLite is the source of truth. Markdown is an export format.
-
-## Why This Exists
-
-Long technical lectures contain more than raw transcript text. A useful learning system should preserve where an idea came from, what evidence supports it, how it connects to other cards, and how the user later edits or rejects it.
-
-This repository explores that pipeline as a local desktop application:
-
-- **Grounded generation**: cards keep claims, evidence, and source timestamps.
-- **Local-first storage**: videos, transcripts, cards, embeddings, and notes stay on the user's machine.
-- **Structured memory**: cards are JSON/SQLite records before they become Markdown.
-- **Learning structure**: a topic tree expresses curriculum order while card relations preserve lateral connections.
-- **Active recall**: independent review items are scheduled locally with FSRS and retain links to grounded claims.
-- **Concept study**: cards can grow into versioned Markdown documents grounded in course claims and local source files.
-- **Retrieval baseline**: card embeddings support ordinary dense retrieval before more advanced graph-guided methods.
-- **Portable output**: exports are Obsidian-friendly Markdown snapshots.
-
-## Current Demo
-
-The current demo runs on Windows as a Tauri desktop app with a packaged FastAPI sidecar.
-
-It can:
-
-- upload local videos;
-- validate media with ffprobe;
-- extract audio with FFmpeg;
-- transcribe with faster-whisper;
-- show transcript segments next to the course workspace;
-- create semantic transcript chunks with Sentence Transformer embeddings;
-- generate cards manually from selected transcript text or automatically from chunks;
-- save, edit, delete, tag, and classify card content;
-- attach user notes to cards;
-- organize cards in a nested Course Map, manually or from embedding-based suggestions;
-- create multiple review prompts per card and schedule them independently with FSRS;
-- review by course or topic with expected answers and transcript evidence;
-- import PPTX, PDF, DOCX, TXT, or Markdown as locally stored source units;
-- create, edit, generate, cite, version, and restore concept Study documents;
-- inspect Course Map review/Study coverage and correct Topics by merge or split;
-- embed cards and run dense card retrieval;
-- compute and persist related-card edges with cosine similarity;
-- explore cards in an interactive course graph;
-- accept, reject, hide, edit, or manually add card relations;
-- use local Qwen to classify candidate relations;
-- export one job or all cards as Markdown folders;
-- check local runtime dependencies such as FFmpeg, Ollama/Qwen, and embedding models.
-
-Still rough:
-
-- the installer is not code-signed;
-- Windows is the only packaged target currently exercised;
-- Ollama, Qwen, FFmpeg, and model caches are user-installed dependencies;
-- RAG currently retrieves cards, but answer generation with citations is still planned;
-- exported Markdown does not sync edits back into SQLite.
-
-## Install
-
-Download the latest Windows installer from:
+The current controlled study compares a handwritten CNN-CTC reader, a parameter-matched handwritten ViT-CTC reader, and a RapidOCR reference on lecture-slide line crops. Models share the same data, tokenizer, CTC head, trainer, evaluator, split, and checkpoint-selection rule. Their predictions are then passed through the same frozen local Qwen card generator and evaluated for concept recovery, claim grounding, citation correctness, and usable-card conversion.
 
 ```text
-https://github.com/eatoften/Video_Course_Cards/releases/latest
+lecture video
+  -> timestamped speech and stable slide pages
+  -> OCR / semantic evidence
+  -> claim-grounded knowledge cards
+  -> course map, review, retrieval, graph, and Markdown export
 ```
 
-The installer includes:
+## Research Questions
 
-- Tauri desktop shell;
-- React UI;
-- packaged FastAPI backend;
-- SQLite schema and app code.
+**RQ1.** Under a small, lecture-level OCR dataset, does a CNN's locality bias generalize better than a similarly sized Vision Transformer?
 
-The installer does **not** bundle large model assets. Install local AI dependencies separately:
+**RQ2.** Do line-level OCR improvements survive the LLM stage and produce measurably better knowledge cards?
+
+**RQ3.** Is character error rate sufficient to predict downstream learning value, or do grounding and page layout introduce independent failure modes?
+
+## Headline Results
+
+### Controlled line recognition
+
+The frozen split contains 1,402 line samples from five independent lectures: Lectures 1-3 are used for training, Lecture 4 for validation-only model selection, and Lecture 5 for one sealed test evaluation.
+
+| Reader | Parameters | CER down | WER down | Exact lines up | Median CPU ms/line down |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| CNN-CTC v2 | 120,629 | **0.1150** | **0.3155** | **73 / 176** | 4.414 |
+| ViT-CTC v1 | 111,253 | 0.4461 | 0.9442 | 5 / 176 | **0.687** |
+| RapidOCR stored text | not measured | **0.0071** | **0.0408** | **158 / 176** | not measured |
+
+The paired CNN-minus-ViT CER difference is `-0.3311`, with a 95% lecture-line bootstrap interval of `[-0.4126, -0.2551]`. All 5,000 resamples favor CNN. Both learned readers first passed the same 32-line memorization gate, so the test gap is evidence about generalization rather than a basic inability to optimize.
+
+RapidOCR is a practical recognizer reference, not an end-to-end page-reading result: its stored text uses the same accepted detector polygons as the benchmark. Detection misses and detector latency are therefore outside this comparison.
+
+### OCR-to-card cascade
+
+Each reader's output was reconstructed into the same 16 pages and passed to the same frozen `qwen3:4b` model at temperature zero. Gold concepts were excluded from prompts.
+
+| OCR source | Concept recall up | Grounded claim precision up | Citation correctness up | No-edit acceptance up | Usable conversion up |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| CNN-CTC v2 | **0.7500** | 0.8667 | 0.6250 | 0.2143 | 0.3750 |
+| ViT-CTC v1 | 0.4375 | 0.4375 | 0.0000 | 0.0000 | 0.0000 |
+| RapidOCR stored text | **0.7500** | **0.9167** | **0.9231** | **0.8333** | **0.6875** |
+
+The results expose three distinct layers of quality:
+
+1. **OCR quality propagates downstream.** CNN produces substantially more usable cards than the current ViT, while RapidOCR remains the strongest practical reader.
+2. **Generation success is not content success.** ViT generated a card for every page, yet none passed the strict usable-card criterion.
+3. **CER is necessary but insufficient.** RapidOCR still loses pages to exact-quote grounding failures, and all text-only systems misread the direction of one slide diagram. Layout is an independent information channel.
+
+The sealed OCR comparison is confirmatory under the frozen protocol. The card cascade is explicitly **exploratory**: an infrastructure failure exposed part of Lecture 5 before the final downstream protocol was frozen. See the [full methods, hashes, error slices, and threats to validity](docs/Multimodal%20CNN%20ViT%20reader%20study.md).
+
+## Experimental Design
+
+The study is organized to make invalid comparisons difficult:
+
+- train, validation, and test are separated at the **lecture level**;
+- the character vocabulary is fitted on training lectures only;
+- CNN and ViT receive identical real and synthetic samples and deterministic augmentation;
+- both models emit one CTC time step per four horizontal pixels and reuse one projection head and decoder;
+- parameter counts differ by less than 8%;
+- checkpoints are selected only by validation `(CER, WER)`;
+- test access is claimed in an immutable ledger before inference;
+- paired bootstrap operates on matched line or page units;
+- configs, datasets, splits, reviews, checkpoints, and reports are hash-bound;
+- failed and revised runs remain documented instead of being silently discarded.
+
+The ViT implementation is intentionally explicit: strip patch embedding, learned position embeddings, Q/K/V projection, scaled dot-product multi-head attention, padding masks, residual blocks, and the CTC output path are implemented in [vit_ctc.py](backend/multimodal_lab/models/vit_ctc.py). The CNN and ViT share the same training and evaluation engine under [multimodal_lab/training](backend/multimodal_lab/training).
+
+## System
+
+The research pipeline is embedded in a working local-first learning application rather than an isolated benchmark.
+
+```mermaid
+flowchart LR
+    subgraph Inputs["Local course sources"]
+        V["Video / audio"]
+        S["Slides and documents"]
+    end
+
+    subgraph Evidence["Evidence extraction"]
+        W["faster-whisper"]
+        C["Semantic chunking"]
+        M["Transition + page reading lab"]
+    end
+
+    subgraph Knowledge["Structured knowledge"]
+        G["Grounded card generation"]
+        DB[("SQLite source of truth")]
+        E["Card embeddings"]
+    end
+
+    subgraph Learning["Learning surfaces"]
+        T["Course map"]
+        R["FSRS review"]
+        K["Dense retrieval"]
+        H["Knowledge graph"]
+        X["Markdown / Obsidian export"]
+    end
+
+    V --> W --> C --> G
+    S --> M --> G
+    G --> DB
+    DB --> E
+    DB --> T
+    DB --> R
+    E --> K
+    E --> H
+    DB --> X
+```
+
+### Product capabilities
+
+- timestamped transcription with faster-whisper;
+- embedding-based semantic transcript chunking;
+- manual and automatic claim-grounded card generation with local Qwen;
+- SQLite persistence for courses, jobs, cards, evidence, notes, relations, and review state;
+- card embeddings, dense retrieval, cosine-similarity relations, and graph exploration;
+- topic hierarchy and independently scheduled FSRS recall items;
+- local PPTX, PDF, DOCX, Markdown, and text sources for concept study documents;
+- versioned study documents with evidence citations;
+- Obsidian-friendly Markdown folder export;
+- React/TypeScript UI packaged as a Tauri Windows application with a FastAPI sidecar.
+
+SQLite is the durable source of truth. Exported Markdown is a portable snapshot, not a second writable database.
+
+## Install the Desktop Demo
+
+Download the latest Windows installer from the [GitHub Releases page](https://github.com/eatoften/Video_Course_Cards/releases/latest).
+
+The installer contains the Tauri shell, React UI, packaged FastAPI backend, and SQLite application code. Large third-party runtimes and model weights are deliberately not bundled. Install the local LLM separately:
 
 ```powershell
 ollama pull qwen3:4b
 ```
+
+FFmpeg, Ollama/Qwen, and the configured Sentence Transformer must be available locally for the corresponding features. The application reports missing runtime dependencies in its status view. See [Local LLM setup](docs/local-llm.md) and [desktop packaging notes](docs/tauri-desktop.md).
 
 Desktop data is stored under:
 
@@ -115,27 +179,39 @@ Desktop data is stored under:
 C:\Users\<user>\AppData\Local\Video Course Cards\
 ```
 
-See [docs/local-llm.md](docs/local-llm.md) for local model configuration.
+Current release constraints:
+
+- Windows is the only packaged target exercised;
+- the installer is not code-signed;
+- model downloads are user-managed;
+- Markdown export is one-way and does not synchronize edits back to SQLite.
 
 ## Developer Setup
 
-Clone the repository, then install backend and frontend dependencies.
+### Prerequisites
+
+- Python 3.11 and [uv](https://docs.astral.sh/uv/)
+- Node.js 22 and npm
+- FFmpeg and ffprobe
+- Ollama with `qwen3:4b`
+- Rust/Cargo, MSVC, Windows SDK, and WebView2 only for Tauri builds
 
 ```powershell
 git clone https://github.com/eatoften/Video_Course_Cards.git
 cd Video_Course_Cards
 ```
 
-Run the backend:
+Start the backend in one terminal:
 
 ```powershell
 cd backend
 $env:PYTHONUTF8='1'
 $env:PYTHONDONTWRITEBYTECODE='1'
+uv sync
 uv run python -B -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
 ```
 
-Run the frontend:
+Start the frontend in another terminal:
 
 ```powershell
 cd frontend
@@ -143,244 +219,133 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-Open:
+Open `http://127.0.0.1:5174`. FastAPI's interactive API documentation is available at `http://127.0.0.1:8001/docs`.
 
-```text
-http://127.0.0.1:5174
-```
-
-## Desktop Build
-
-Tauri requires Rust/Cargo and the Visual Studio C++ build tools on Windows.
-
-Build the backend sidecar:
+For the desktop shell:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-desktop-backend.ps1
-```
-
-Run the desktop app in development:
-
-```powershell
 cd frontend
 npm.cmd run tauri:dev
 ```
 
-Build the Windows installer:
+## Reproducing the Research Pipeline
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows-installer.ps1
-```
+Research code lives under `backend/multimodal_lab` and is isolated from production code under `backend/app`. Product services never import a training script.
 
-Output:
-
-```text
-frontend\src-tauri\target\release\bundle\nsis\Video Course Cards_0.1.0_x64-setup.exe
-```
-
-GitHub Actions can build and attach the installer to a tag release:
-
-```powershell
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-See [docs/tauri-desktop.md](docs/tauri-desktop.md).
-
-## Architecture
-
-```mermaid
-flowchart LR
-    subgraph Desktop["Tauri desktop"]
-        UI["React / TypeScript"]
-        RUST["Rust shell"]
-    end
-
-    subgraph Backend["FastAPI sidecar"]
-        API["HTTP routes"]
-        JOBS["Job service"]
-        PIPELINE["Video pipeline"]
-        CARDS["Card services"]
-        REVIEW["Topic + review services"]
-        RAG["Retrieval services"]
-    end
-
-    subgraph LocalAI["Local AI runtime"]
-        FFMPEG["FFmpeg / ffprobe"]
-        WHISPER["faster-whisper"]
-        EMB["Sentence Transformers"]
-        LLM["Ollama / Qwen"]
-    end
-
-    subgraph Storage["Local data"]
-        DB["SQLite"]
-        FILES["uploads / transcripts / exports"]
-    end
-
-    UI <--> API
-    RUST --> API
-    API --> JOBS
-    JOBS --> PIPELINE
-    PIPELINE --> FFMPEG
-    PIPELINE --> WHISPER
-    CARDS --> LLM
-    REVIEW --> DB
-    RAG --> EMB
-    API <--> DB
-    API <--> FILES
-```
-
-The backend is deliberately split by responsibility:
-
-| Layer | Responsibility |
-| --- | --- |
-| `main.py` | HTTP routes and response mapping |
-| `job_service.py` | video job orchestration |
-| `job_store.py` | SQLite CRUD for jobs |
-| `video_pipeline.py` | media probe, audio extraction, transcription |
-| `transcript_chunker.py` | semantic transcript chunking |
-| `knowledge_card_service.py` | card persistence and updates |
-| `topic_service.py` | course hierarchy and card membership workflows |
-| `review_service.py` | FSRS queue construction and rating workflow |
-| `source_asset_service.py` | local document validation, storage, and extraction orchestration |
-| `learning_document_service.py` | anchor-card documents, citations, LLM generation, and versions |
-| `card_embedding_service.py` | card text -> embedding workflow |
-| `rag_service.py` | card retrieval baseline |
-| `desktop_server.py` | packaged backend sidecar entrypoint |
-
-## Knowledge Cards
-
-A card is stored as structured data, not just markdown text.
-
-```json
-{
-  "card_kind": "concept",
-  "title": "Singular Value Decomposition",
-  "summary": "SVD factors a matrix into orthogonal and diagonal structure.",
-  "content_status": "reviewed",
-  "tags": ["linear algebra", "matrix factorization"],
-  "source_start_seconds": 724.0,
-  "source_end_seconds": 738.0,
-  "claims": [
-    {
-      "id": "claim-uuid",
-      "text": "SVD decomposes a matrix using orthogonal and diagonal components.",
-      "evidence": [
-        {
-          "id": "evidence-uuid",
-          "quote": "called the singular value decomposition",
-          "segment_start_seconds": 724.0,
-          "segment_end_seconds": 738.0
-        }
-      ]
-    }
-  ]
-}
-```
-
-Recall prompts are separate scheduling units:
-
-```json
-{
-  "card_id": "card-uuid",
-  "item_type": "explain",
-  "prompt": "What structure does SVD use to factor a matrix?",
-  "expected_answer": "It uses orthogonal matrices and a diagonal matrix.",
-  "source_claim_ids": ["claim-uuid"]
-}
-```
-
-This separation allows one knowledge card to have several independently
-scheduled review prompts without mixing memory state into card content.
-
-## API Surface
-
-Selected endpoints:
-
-| Endpoint | Purpose |
-| --- | --- |
-| `POST /videos` | upload and register a local video |
-| `POST /jobs/{job_id}/run` | run probe -> audio -> transcription |
-| `GET /jobs/{job_id}/transcript` | return timestamped transcript segments |
-| `POST /jobs/{job_id}/chunks` | generate semantic transcript chunks |
-| `POST /jobs/{job_id}/cards/auto-generate` | generate cards from chunks |
-| `GET /jobs/{job_id}/cards` | list cards for one video job |
-| `PATCH /cards/{card_id}` | edit a saved card |
-| `POST /cards/{card_id}/embedding` | embed one card |
-| `POST /courses/{course_id}/card-embeddings` | embed all cards in a course |
-| `POST /courses/{course_id}/card-relations/recompute` | persist top-k cosine similarity relations |
-| `GET /courses/{course_id}/card-relations` | return graph nodes and relation edges |
-| `POST /courses/{course_id}/card-relations` | create a manual typed relation |
-| `POST /card-relations/{relation_id}/classify` | classify a relation with local Qwen |
-| `GET /courses/{course_id}/map` | return topics, memberships and topic relations |
-| `POST /courses/{course_id}/topics/suggest` | cluster Unsorted cards into reviewable topic suggestions |
-| `PUT /cards/{card_id}/primary-topic` | move a card to a primary topic |
-| `GET /courses/{course_id}/review/queue` | get due FSRS review items by course or topic |
-| `POST /review-items/{review_item_id}/rate` | rate recall and schedule the next review |
-| `POST /courses/{course_id}/source-assets` | import and locally extract PPTX/PDF/DOCX/text |
-| `POST /cards/{card_id}/learning-documents` | create a Study document around an anchor card |
-| `POST /learning-documents/{document_id}/generate` | generate a cited local-Qwen Study draft |
-| `PATCH /learning-documents/{document_id}` | edit a document and create a version |
-| `POST /learning-documents/{document_id}/restore` | restore an older version as a new version |
-| `POST /rag/retrieve` | retrieve relevant cards for a question |
-| `POST /jobs/{job_id}/cards/export/markdown/folder` | export one job as Markdown |
-| `POST /cards/export/markdown/folder` | export all cards as Markdown |
-| `GET /runtime/status` | inspect local runtime dependencies |
-
-## Tests
-
-Backend:
+Run the test suite first:
 
 ```powershell
 cd backend
 uv run pytest
 ```
 
-Frontend:
+Audit the frozen Assignment 5 protocol:
 
 ```powershell
-cd frontend
-npm.cmd run build
+uv run python -m multimodal_lab.run_reader_benchmark_protocol audit --protocol multimodal_lab/configs/reader_benchmark_v2_protocol.json --project-root . --output data/multimodal_lab/assignment_5_protocol_audit.json
 ```
 
-Tauri:
+Run the shared 32-line capacity gate:
 
 ```powershell
-cd frontend\src-tauri
-cargo check
+uv run python -m multimodal_lab.run_reader_overfit --config multimodal_lab/configs/reader_cnn_v2.json --output-dir data/multimodal_lab/reader_overfit --device cpu
+uv run python -m multimodal_lab.run_reader_overfit --config multimodal_lab/configs/reader_vit_v1.json --output-dir data/multimodal_lab/reader_overfit --device cpu
 ```
 
-Sidecar smoke test:
+Train with validation-only checkpoint selection:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-desktop-backend.ps1
+uv run python -m multimodal_lab.run_train_reader --config multimodal_lab/configs/reader_cnn_v2.json --output-dir data/multimodal_lab/reader_training --device cpu --cpu-thread-count 16
+uv run python -m multimodal_lab.run_train_reader --config multimodal_lab/configs/reader_vit_v1.json --output-dir data/multimodal_lab/reader_training --device cpu --cpu-thread-count 16
 ```
 
-## Roadmap
+The one-time `--open-sealed-test` command is intentionally omitted. Lecture 5 has already been opened under the committed protocol result, and rerunning or tuning against it would violate that experiment's role. New model development must use validation data or define a new held-out lecture before inspecting another test result.
 
-Near term:
+### Artifact availability
 
-- evaluate automatic topic coherence on complete courses using the new metrics;
-- exercise Study generation on PPT/PDF-backed concepts;
-- tune semantic chunk boundaries and duplicate-card detection;
-- continue splitting the remaining legacy workspace component into view modules;
-- turn card retrieval into a citation-grounded answer assistant;
-- add evaluation records for grounding, retrieval, topic coherence and retention.
+Tracked in Git:
 
-Longer term:
+- model, trainer, evaluator, and cascade source code;
+- versioned experiment and augmentation configs;
+- source-audit decisions;
+- compact metrics, hashes, run IDs, and validity notes;
+- the complete Assignment 5 study report.
 
-- compare ordinary dense RAG against graph-guided retrieval;
-- use user edits and save/delete decisions as a feedback dataset for future agentic learning loops.
+Not tracked in Git:
+
+- copyrighted lecture videos;
+- extracted frames and line crops;
+- generated datasets and full prediction logs;
+- optimizer state and model checkpoints;
+- local Ollama and Sentence Transformer weights.
+
+These artifacts remain under ignored `backend/data/` directories. A fresh clone can inspect the complete protocol and result provenance, run unit tests, and use the product, but cannot reproduce the exact numerical benchmark without recreating source data that matches the recorded hashes. This limitation is part of the artifact record, not hidden behind an incomplete setup command.
+
+## Repository Layout
+
+```text
+Video_Course_Cards/
+|-- backend/
+|   |-- app/                    # FastAPI product services and SQLite stores
+|   |-- multimodal_lab/         # isolated datasets, models, trainers, protocols
+|   |-- tests/                  # product and research regression tests
+|   `-- data/                   # ignored local data and experiment runs
+|-- frontend/
+|   |-- src/                    # React/TypeScript learning workspace
+|   `-- src-tauri/              # Rust shell and FastAPI sidecar lifecycle
+|-- docs/
+|   |-- experiments/            # compact machine-readable research results
+|   `-- *.md                    # methods, roadmaps, and engineering notes
+|-- scripts/                    # desktop build, smoke-test, and release scripts
+`-- .github/workflows/          # Windows installer release workflow
+```
+
+Important entry points:
+
+| Area | Entry point |
+| --- | --- |
+| FastAPI | `backend/app/main.py` |
+| Desktop backend | `backend/app/desktop_server.py` |
+| Video pipeline | `backend/app/video_pipeline.py` |
+| Card generation | `backend/app/card_service.py` |
+| CNN-CTC | `backend/multimodal_lab/models/cnn_ctc.py` |
+| ViT-CTC | `backend/multimodal_lab/models/vit_ctc.py` |
+| Shared training | `backend/multimodal_lab/training/reader_trainer.py` |
+| Sealed comparison | `backend/multimodal_lab/run_reader_comparison.py` |
+| OCR-to-card cascade | `backend/multimodal_lab/run_reader_card_cascade.py` |
+
+## Verification
+
+The Assignment 5 working tree was verified with:
+
+```text
+284 passed
+```
+
+Additional gates include dataset leakage audits, CTC feasibility checks, model shape and padding tests, finite-gradient tests, 32-line exact overfit, frozen checkpoint hashes, and a one-access test ledger.
+
+## Limitations and Research Status
+
+- Five lectures cover one course and one slide-style family.
+- Source-aligned OCR labels still require independent human spot-checking before publication-level claims.
+- The RapidOCR comparison excludes page-level detector recall and detector latency.
+- The downstream cascade uses slide OCR without aligned lecture audio.
+- The card audit has one model-assisted source auditor and no inter-rater reliability measurement.
+- Sixteen downstream pages yield wide uncertainty even with paired bootstrap.
+- The current ViT result is a small-data baseline, not a claim that Vision Transformers are generally inferior for OCR.
+
+The next defensible multimodal experiment is a newly held-out lecture with a layout-aware or VLM reader, aligned audio evidence, and an independent second card auditor. Product work continues toward citation-grounded RAG and graph-guided retrieval; see the [multimodal plan](docs/Multimodal%20upgrade%20plan.md) and [RAG roadmap](docs/rag-roadmap.md).
 
 ## Project Principles
 
-- Local data should stay local by default.
-- Claims should be traceable to evidence.
-- SQLite should remain the durable source of truth.
-- Markdown should be portable, inspectable, and tool-friendly.
-- Advanced AI features should be compared against simple baselines.
-- User corrections should become evaluation data before they become training data.
+- Local data stays local by default.
+- Every generated claim should be traceable to evidence.
+- Simple baselines precede complex agents.
+- Validation selects models; test data evaluates frozen decisions.
+- Failed runs and protocol revisions remain part of the record.
+- User corrections become evaluation data before they become training data.
 
 ## License
 
-To be determined before the first public release.
+No open-source license has been declared yet. Source availability does not grant permission to redistribute or reuse the code; a license must be selected before a formal public research release.

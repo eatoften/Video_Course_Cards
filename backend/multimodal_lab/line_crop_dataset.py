@@ -5,12 +5,12 @@ import math
 import random
 from collections import defaultdict, deque
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 from torch import Tensor
 from torch.utils.data import Dataset
 
@@ -33,10 +33,57 @@ class LineCropDatasetError(ValueError):
 
 
 @dataclass(frozen=True)
+class LineImageAugmentation:
+    enabled: bool = False
+    policy_id: str = "disabled"
+    seed: int = 0
+    rotation_probability: float = 0.0
+    maximum_rotation_degrees: float = 0.0
+    contrast_probability: float = 0.0
+    minimum_contrast: float = 1.0
+    maximum_contrast: float = 1.0
+    brightness_probability: float = 0.0
+    minimum_brightness: float = 1.0
+    maximum_brightness: float = 1.0
+    blur_probability: float = 0.0
+    maximum_blur_radius: float = 0.0
+    noise_probability: float = 0.0
+    maximum_noise_standard_deviation: float = 0.0
+
+    def __post_init__(self) -> None:
+        probabilities = (
+            self.rotation_probability,
+            self.contrast_probability,
+            self.brightness_probability,
+            self.blur_probability,
+            self.noise_probability,
+        )
+        if any(not 0 <= value <= 1 for value in probabilities):
+            raise ValueError("Augmentation probabilities must be in [0, 1].")
+        if self.seed < 0 or not self.policy_id.strip():
+            raise ValueError("Augmentation seed and policy_id are invalid.")
+        if self.maximum_rotation_degrees < 0:
+            raise ValueError("maximum_rotation_degrees cannot be negative.")
+        if not 0 < self.minimum_contrast <= self.maximum_contrast:
+            raise ValueError("Contrast bounds must be positive and ordered.")
+        if not 0 < self.minimum_brightness <= self.maximum_brightness:
+            raise ValueError("Brightness bounds must be positive and ordered.")
+        if self.maximum_blur_radius < 0:
+            raise ValueError("maximum_blur_radius cannot be negative.")
+        if self.maximum_noise_standard_deviation < 0:
+            raise ValueError(
+                "maximum_noise_standard_deviation cannot be negative."
+            )
+
+
+@dataclass(frozen=True)
 class LineImageTransform:
     target_height: int = 32
     max_width: int = 512
     verify_hashes: bool = True
+    augmentation: LineImageAugmentation = field(
+        default_factory=LineImageAugmentation
+    )
 
     def __post_init__(self) -> None:
         if self.target_height <= 0:
@@ -76,6 +123,12 @@ class LineCropDataset(Dataset[LineCropItem]):
         self._samples = list(samples)
         self._image_root = Path(image_root).resolve()
         self._transform = transform or LineImageTransform()
+        self._epoch = 0
+
+    def set_epoch(self, epoch: int) -> None:
+        if epoch < 0:
+            raise LineCropDatasetError("Dataset epoch cannot be negative.")
+        self._epoch = epoch
 
     def __len__(self) -> int:
         return len(self._samples)
@@ -95,6 +148,12 @@ class LineCropDataset(Dataset[LineCropItem]):
 
         with Image.open(crop_path) as image:
             grayscale = image.convert("L")
+            grayscale, noise_rng = _augment_line_image(
+                grayscale,
+                sample_id=sample.sample_id,
+                epoch=self._epoch,
+                augmentation=self._transform.augmentation,
+            )
             target_width = max(
                 1,
                 round(
@@ -113,10 +172,83 @@ class LineCropDataset(Dataset[LineCropItem]):
                 Image.Resampling.BILINEAR,
             )
             pixels = np.asarray(resized, dtype=np.float32) / 255.0
+            pixels = _add_line_image_noise(
+                pixels,
+                rng=noise_rng,
+                augmentation=self._transform.augmentation,
+            )
 
         # Ink is positive and white padding is zero, which makes padding inert.
         tensor = 1.0 - torch.from_numpy(pixels.copy()).unsqueeze(0)
         return LineCropItem(sample=sample, image=tensor, width=target_width)
+
+
+def _augment_line_image(
+    image: Image.Image,
+    *,
+    sample_id: str,
+    epoch: int,
+    augmentation: LineImageAugmentation,
+) -> tuple[Image.Image, random.Random | None]:
+    if not augmentation.enabled:
+        return image, None
+    seed_payload = (
+        f"{augmentation.policy_id}\0{augmentation.seed}\0{epoch}\0{sample_id}"
+    )
+    seed = int.from_bytes(
+        hashlib.sha256(seed_payload.encode("utf-8")).digest()[:8],
+        byteorder="big",
+    )
+    rng = random.Random(seed)
+    transformed = image
+    if rng.random() < augmentation.rotation_probability:
+        angle = rng.uniform(
+            -augmentation.maximum_rotation_degrees,
+            augmentation.maximum_rotation_degrees,
+        )
+        transformed = transformed.rotate(
+            angle,
+            resample=Image.Resampling.BILINEAR,
+            expand=False,
+            fillcolor=255,
+        )
+    if rng.random() < augmentation.contrast_probability:
+        factor = rng.uniform(
+            augmentation.minimum_contrast,
+            augmentation.maximum_contrast,
+        )
+        transformed = ImageEnhance.Contrast(transformed).enhance(factor)
+    if rng.random() < augmentation.brightness_probability:
+        factor = rng.uniform(
+            augmentation.minimum_brightness,
+            augmentation.maximum_brightness,
+        )
+        transformed = ImageEnhance.Brightness(transformed).enhance(factor)
+    if rng.random() < augmentation.blur_probability:
+        radius = rng.uniform(0.0, augmentation.maximum_blur_radius)
+        transformed = transformed.filter(ImageFilter.GaussianBlur(radius=radius))
+    return transformed, rng
+
+
+def _add_line_image_noise(
+    pixels: np.ndarray,
+    *,
+    rng: random.Random | None,
+    augmentation: LineImageAugmentation,
+) -> np.ndarray:
+    if (
+        rng is None
+        or rng.random() >= augmentation.noise_probability
+        or augmentation.maximum_noise_standard_deviation == 0
+    ):
+        return pixels
+    standard_deviation = rng.uniform(
+        0.0,
+        augmentation.maximum_noise_standard_deviation,
+    )
+    numpy_rng = np.random.default_rng(rng.getrandbits(64))
+    noise = numpy_rng.normal(0.0, standard_deviation, size=pixels.shape)
+    return np.clip(pixels + noise, 0.0, 1.0).astype(np.float32)
 
 
 def collate_line_crops(
@@ -317,6 +449,38 @@ def make_lecture_level_split(
         validation_lecture_ids=validation_lectures,
         test_lecture_ids=test_lectures,
     )
+
+
+def make_explicit_lecture_split(
+    samples: Sequence[LineCropSample],
+    *,
+    dataset_sha256: str,
+    train_lecture_ids: Sequence[str],
+    validation_lecture_ids: Sequence[str],
+    test_lecture_ids: Sequence[str],
+    seed: int = 42,
+) -> LectureSplitManifest:
+    manifest = LectureSplitManifest(
+        dataset_sha256=dataset_sha256,
+        seed=seed,
+        train_lecture_ids=sorted(train_lecture_ids),
+        validation_lecture_ids=sorted(validation_lecture_ids),
+        test_lecture_ids=sorted(test_lecture_ids),
+    )
+    dataset_lectures = {sample.lecture_id for sample in samples}
+    declared_lectures = {
+        *manifest.train_lecture_ids,
+        *manifest.validation_lecture_ids,
+        *manifest.test_lecture_ids,
+    }
+    if dataset_lectures != declared_lectures:
+        missing = sorted(dataset_lectures - declared_lectures)
+        extra = sorted(declared_lectures - dataset_lectures)
+        raise LineCropDatasetError(
+            "Explicit split must cover dataset lectures exactly; "
+            f"missing={missing}, extra={extra}."
+        )
+    return manifest
 
 
 def partition_by_lecture_split(

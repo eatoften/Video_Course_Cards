@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass
 from time import perf_counter
 from collections.abc import Iterable
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -149,6 +149,9 @@ class CardDraftResponse(BaseModel):
     cards: list[KnowledgeCardDraft]
 
 
+CardEvidenceKind = Literal["transcript", "slide_ocr"]
+
+
 class _LLMCardClaim(BaseModel):
     text: str
     evidence_quotes: list[str] = Field(default_factory=list)
@@ -184,20 +187,55 @@ def draft_knowledge_cards(
 ) -> CardDraftResponse:
     started_at = perf_counter()
 
-    if request.end_seconds <= request.start_seconds:
-        raise InvalidCardDraftRequestError(
-            "Card draft end must be greater than start."
-        )
-
     context = job_service.get_transcript_context(
         request.job_id,
         request.start_seconds,
         request.end_seconds,
     )
 
+    return _draft_knowledge_cards_from_context(
+        request,
+        context,
+        llm_client=llm_client,
+        evidence_kind="transcript",
+        started_at=started_at,
+    )
+
+
+def draft_knowledge_cards_from_context(
+    request: CardDraftRequest,
+    context: job_service.TranscriptContext,
+    *,
+    llm_client: CardLLMClient,
+    evidence_kind: CardEvidenceKind,
+) -> CardDraftResponse:
+    """Generate cards from an explicit evidence context without a DB lookup."""
+
+    return _draft_knowledge_cards_from_context(
+        request,
+        context,
+        llm_client=llm_client,
+        evidence_kind=evidence_kind,
+        started_at=perf_counter(),
+    )
+
+
+def _draft_knowledge_cards_from_context(
+    request: CardDraftRequest,
+    context: job_service.TranscriptContext,
+    *,
+    llm_client: CardLLMClient,
+    evidence_kind: CardEvidenceKind,
+    started_at: float,
+) -> CardDraftResponse:
+    if request.end_seconds <= request.start_seconds:
+        raise InvalidCardDraftRequestError(
+            "Card draft end must be greater than start."
+        )
+
     if not context.text.strip():
         raise InvalidCardDraftRequestError(
-            "Selected transcript context is empty."
+            "Selected evidence context is empty."
         )
 
     _validate_context_window(context)
@@ -205,6 +243,7 @@ def draft_knowledge_cards(
     messages = _build_generation_messages(
         request=request,
         context=context,
+        evidence_kind=evidence_kind,
     )
     selected_model = _normalize_model_name(request.model)
     response_model = selected_model or llm_client.settings.model
@@ -371,21 +410,29 @@ def _build_generation_messages(
     *,
     request: CardDraftRequest,
     context: job_service.TranscriptContext,
+    evidence_kind: CardEvidenceKind = "transcript",
 ) -> list[LLMMessage]:
     focus = request.focus.strip() if request.focus else "general review"
 
-    system_prompt = """
-Create compact study cards from transcript evidence.
+    evidence_label = (
+        "Transcript evidence"
+        if evidence_kind == "transcript"
+        else "Slide OCR evidence"
+    )
+    evidence_block = "TRANSCRIPT" if evidence_kind == "transcript" else "SLIDE_OCR"
+
+    system_prompt = f"""
+Create compact study cards from {evidence_label.lower()}.
 
 Rules:
 1. JSON only. No Markdown, explanations, or <think>.
-2. Use the transcript language unless the user focus asks otherwise.
-3. Use only facts in the transcript.
+2. Use the evidence language unless the user focus asks otherwise.
+3. Use only facts in the evidence.
 4. Return no more than the requested number of cards.
 5. Each card needs 1-2 atomic claims.
-6. Each claim needs 1-2 evidence_quotes copied exactly from one transcript line.
+6. Each claim needs 1-2 evidence_quotes copied exactly from one evidence line.
 7. Evidence quotes must not include timestamps.
-8. If evidence is weak, return {"cards": []}.
+8. If evidence is weak, return {{"cards": []}}.
 """.strip()
 
     user_prompt = f"""
@@ -403,10 +450,10 @@ Requested number of cards:
 User focus:
 {focus}
 
-Transcript evidence:
-<<<TRANSCRIPT
+{evidence_label}:
+<<<{evidence_block}
 {_format_transcript_evidence(context.segments)}
-TRANSCRIPT>>>
+{evidence_block}>>>
 
 Return exactly this JSON shape:
 {{

@@ -172,7 +172,7 @@ class NativeSourcePageReader:
                 latency_seconds=time.perf_counter() - started_at,
             )
 
-        text = _clean_native_source_text(unit.text)
+        text = clean_native_source_text(unit.text)
         if not text:
             return _abstained_content(
                 context,
@@ -395,14 +395,18 @@ _ATTRIBUTION_MARKERS = (
 )
 
 
-def _clean_native_source_text(text: str) -> str:
+def clean_native_source_text(
+    text: str,
+    *,
+    discard_numeric_lines: bool = True,
+) -> str:
     kept_lines: list[str] = []
     for raw_line in text.splitlines():
         line = raw_line.strip()
         lowered = line.casefold()
         if not line or _SOURCE_HEADER_PATTERN.match(line):
             continue
-        if line.isdigit():
+        if discard_numeric_lines and line.isdigit():
             continue
         if any(marker in lowered for marker in _ATTRIBUTION_MARKERS):
             continue

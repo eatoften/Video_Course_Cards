@@ -7,6 +7,7 @@ from multimodal_lab.formal_reader_dataset import (
     SOURCE_ALIGNED_REVIEW_METHOD,
     build_source_aligned_line_crops,
     build_synthetic_line_crops,
+    build_verbatim_deck_references_from_pages,
     make_line_review_template,
 )
 from multimodal_lab.line_crop_dataset import LineCropDatasetError
@@ -155,3 +156,49 @@ def test_synthetic_builder_is_deterministic_and_train_only(tmp_path):
     assert {sample.label_source for sample in first} == {
         LineLabelSource.synthetic_render
     }
+
+
+def test_synthetic_v2_can_include_numeric_only_lines(tmp_path):
+    reference = StablePageReference(
+        page_event_id="numeric-page",
+        lecture_id="lecture-train",
+        stable_frame_timestamp=1,
+        image_path="unused.png",
+        page_number=1,
+        gold_text="3072\nW1",
+        gold_text_scope=GoldTextScope.verbatim_content,
+    )
+
+    samples = build_synthetic_line_crops(
+        [reference],
+        image_root=tmp_path,
+        output_dir=tmp_path / "numeric",
+        font_path=None,
+        variants_per_line=1,
+        content_policy="alphanumeric",
+    )
+
+    assert [sample.normalized_text for sample in samples] == ["3072", "W1"]
+
+
+def test_deck_references_replace_summaries_with_clean_verbatim_text():
+    base = StablePageReference(
+        page_event_id="lecture-page",
+        lecture_id="lecture",
+        stable_frame_timestamp=2,
+        image_path="frame.png",
+        page_number=2,
+        gold_text="Summary",
+    )
+
+    references = build_verbatim_deck_references_from_pages(
+        [base],
+        source_pages=[
+            "unused",
+            "Lecture 2 - April 2, 2025\n3072\nf(x, W) = Wx + b\n2",
+        ],
+    )
+
+    assert references[0].page_event_id.endswith("-deck-v2")
+    assert references[0].gold_text == "3072\nf(x, W) = Wx + b"
+    assert references[0].gold_text_scope is GoldTextScope.verbatim_content
