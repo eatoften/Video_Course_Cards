@@ -1,0 +1,18 @@
+{
+  "study": "R2 card retrieval baselines",
+  "status": "exploratory_development",
+  "run_id": "rag-r2-20260721T132333Z",
+  "question_count": 40,
+  "systems": {
+    "bm25": {"recall_at_1": 0.40625, "recall_at_3": 0.8125, "recall_at_5": 0.859375, "mrr": 0.7369791667, "ndcg_at_5": 0.7459504788, "multi_hop_joint_recall_at_3": 0.375, "unanswerable_false_retrieval_rate": 0.125, "median_latency_ms": 0.8011},
+    "dense": {"recall_at_1": 0.59375, "recall_at_3": 0.96875, "recall_at_5": 1.0, "mrr": 0.9010416667, "ndcg_at_5": 0.9236829010, "multi_hop_joint_recall_at_3": 0.75, "unanswerable_false_retrieval_rate": 0.0, "median_latency_ms": 24.18685},
+    "hybrid_rrf": {"recall_at_1": 0.609375, "recall_at_3": 0.921875, "recall_at_5": 0.96875, "mrr": 0.890625, "ndcg_at_5": 0.8978033662, "multi_hop_joint_recall_at_3": 0.5, "unanswerable_false_retrieval_rate": 0.375, "median_latency_ms": 25.29785},
+    "dense_graph_noisy": {"recall_at_1": 0.5625, "recall_at_3": 0.96875, "recall_at_5": 1.0, "mrr": 0.875, "ndcg_at_5": 0.9039663462, "multi_hop_joint_recall_at_3": 0.75, "unanswerable_false_retrieval_rate": 0.0, "median_latency_ms": 24.97015},
+    "dense_graph_trusted": {"recall_at_1": 0.421875, "recall_at_3": 0.96875, "recall_at_5": 1.0, "mrr": 0.8046875, "ndcg_at_5": 0.8517879903, "multi_hop_joint_recall_at_3": 0.875, "unanswerable_false_retrieval_rate": 0.0, "median_latency_ms": 24.57105}
+  },
+  "trusted_graph_minus_dense_bootstrap": {
+    "multi_hop_joint_recall_at_3": {"difference": 0.125, "ci95": [0.0, 0.375]},
+    "overall_ndcg_at_5": {"difference": -0.0718949107, "ci95": [-0.1330289673, -0.0162497243]},
+    "single_card_ndcg_at_5": {"difference": -0.1629506712, "ci95": [-0.2552182328, -0.0773837808]}
+  }
+}

@@ -1,517 +1,126 @@
-# RAG Roadmap
+# RAG Research Roadmap
 
-Last updated: 2026-07-02
+Last updated: 2026-07-21
 
-## Goal
+## Objective
 
-Build a simple, explainable card-only dense RAG baseline before moving into
-graph retrieval, learned routing, or agentic RL.
+Build a measured card-level RAG baseline before introducing learned graph
+routing or agentic policies. Retrieval, grounding, refusal, and downstream
+answer quality must be evaluated separately.
 
-The baseline should answer this question first:
+## Completed Development Work
 
-```text
-Given a user question, can the system retrieve the most relevant knowledge
-cards from the current course?
-```
+### R0: Product Dense Retrieval
 
-Only after this works well should the system generate final answers with Qwen.
+- Card embeddings in SQLite
+- Query embedding with local MiniLM
+- Cosine top-k retrieval API
+- Frontend Ask tab showing retrieved cards
 
-## Why Start With A Baseline
+### R1: Candidate Evaluation Dataset
 
-The long-term project direction includes:
+- Frozen 118-card corpus with claim/evidence/timestamp provenance
+- 100 questions: factual, concept, comparison, multi-hop, unanswerable
+- 40-question development and unopened 60-question test split
+- Structural and wording-quality audit
+- Human review sheet
 
-- card similarity graphs
-- graph-based retrieval routes
-- learned query representations
-- learned retrievers or routers
-- agentic decision policies over the card graph
+Status: **candidate only; independent review pending**.
 
-Those ideas need a comparison point. A plain dense RAG baseline gives us that
-comparison.
+### R2: Retrieval Baselines
 
-Baseline retrieval:
+- BM25
+- Dense MiniLM retrieval
+- BM25 + dense reciprocal-rank fusion
+- Dense + noisy one-hop graph
+- Dense + candidate reviewed one-hop graph
+- Recall@1/3/5, MRR, nDCG, latency, refusal calibration
+- Paired bootstrap confidence intervals
 
-```text
-question
--> query embedding
--> cosine similarity against card embeddings
--> top-k cards
-```
+Development finding: Dense is the strongest default. Graph expansion improves
+one small multi-hop retrieval slice but damages overall and single-card ranking.
 
-Future graph retrieval:
+### R3: Grounded Generation
 
-```text
-question
--> query embedding
--> anchor cards
--> graph route / evidence subgraph
--> answer
-```
+- Fixed Qwen model, prompt, top-k, and character budget
+- Claim-only structured generation
+- Exact card/claim/evidence citations
+- Dense-anchor confidence gate
+- Resumable JSONL experiment artifacts
+- Human answer-review sheet
 
-## Scope Decision
+Development finding: prompt-only refusal fails; calibrated pre-generation gating
+is necessary.
 
-Use only knowledge card embeddings for the first RAG baseline.
+### R4: Graph RAG Comparison
 
-Do not add transcript chunk embeddings in this phase.
+- Same top-5 and generation budget for Dense and Graph
+- Per-question win/tie/loss analysis
+- Bootstrap comparison of citation metrics
 
-Reason:
+Development finding: one graph win, 39 ties, and no multi-hop generation gain.
 
-- knowledge cards are already structured and claim-grounded
-- card embeddings already exist in SQLite
-- card-level retrieval is easier to inspect and debug
-- transcript chunks can be added later as fallback evidence if card recall is
-  not enough
+See `docs/RAG retrieval and graph study.md` for methods and results.
 
-Current reusable code:
+## Required Before Formal Test
 
-- `backend/app/embedding.py`
-  - `SentenceTransformerEmbedder`
-  - `cosine_similarity`
-- `backend/app/card_embedding.py`
-  - `CardEmbedding`
-  - vector BLOB serialization
-- `backend/app/card_embedding_store.py`
-  - card embedding persistence
-- `backend/app/card_embedding_service.py`
-  - card/job/course embedding generation
+1. Independently review all benchmark questions, gold claims, evidence spans,
+   timestamps, and answerability labels.
+2. Independently curate the accepted graph without looking at test questions.
+3. Mark accepted items and graph review as human verified.
+4. Freeze every protocol, threshold, model digest, and artifact hash.
+5. Open the 60-question test split once.
+6. Report confidence intervals and every deviation from protocol.
 
-Missing reusable capability:
+## After The Baseline Is Valid
 
-```text
-load full card embeddings by course or by job
-```
+### Parallel Track: Graph As Knowledge Substrate
 
-The store currently exposes embedding metadata for course/job status, but dense
-retrieval needs full vectors.
-
-## UI Placement
-
-The main frontend is already dense, so do not add a permanent chat box to the
-main content area yet.
-
-Use the right rail instead.
-
-Proposed UI:
+Do not require one retriever to serve every task:
 
 ```text
-Right rail
--> Cards tab
--> Ask tab
+direct question -> Dense -> evidence gate -> answer
+explore/review  -> Dense anchor -> typed Graph -> concept trail
 ```
 
-The first Ask tab should only retrieve related cards:
+The first structural audit records 27.1% graph coverage and finds that 45% of
+candidate edges contain at least one association outside Dense top-5. This is a
+hypothesis-generating result, not evidence of large-scale associative memory.
+
+Measure graph value using relation precision, nonlocal useful discovery, path
+quality, community stability, prerequisite violations, and learning outcomes.
+See `docs/Graph as associative knowledge structure.md` and the compact artifact
+`docs/experiments/rag_graph_organization_audit_v1.json`.
+
+### R5: Harder Multi-hop Benchmark
+
+- More lectures and independently authored paths
+- Two- and three-evidence questions
+- Hard negatives from neighboring concepts
+- Typed relation-path labels
+
+### R6: Stronger Graph Retrieval
+
+- Type-aware expansion
+- Relation-specific weights
+- Personalized PageRank baseline
+- Budgeted path search
+- Graph pruning and noise ablation
+
+### R7: Transcript Fallback
+
+- Retrieve transcript evidence only when card coverage is insufficient
+- Preserve timestamp provenance
+- Compare card-only against card-plus-transcript retrieval
+
+### R8: Learned Router
+
+Only after R1-R7 are measured:
 
 ```text
-Question: What is SVD?
-
-Top matches:
-1. Singular Value Decomposition    score 0.84
-2. Orthogonal Matrices             score 0.71
-3. Matrix Factorization            score 0.68
+query representation
+-> choose dense anchor / graph expansion / transcript fallback / abstain
+-> collect reward from retrieval, grounding, and human feedback
 ```
 
-Do not generate answers in the first UI version. Retrieval quality should be
-visible before adding Qwen.
-
-## Milestone 17.1: Card-Only Dense Retrieval
-
-### Step 17.1.1: Store Query Capability
-
-Add full-vector query functions to `card_embedding_store.py`:
-
-```text
-list_card_embeddings_for_job(job_id)
-list_card_embeddings_for_course(course_id)
-```
-
-Return:
-
-```text
-list[CardEmbedding]
-```
-
-Knowledge to learn:
-
-- SQLite joins
-- BLOB to vector decoding
-- why retrieval needs full vectors, not only embedding metadata
-
-Tests:
-
-- create two cards
-- insert embeddings
-- list embeddings by job
-- confirm both vectors round-trip correctly
-
-### Step 17.1.2: RAG Schema
-
-Create:
-
-```text
-backend/app/rag.py
-```
-
-Models:
-
-```text
-RagRetrieveRequest
-RetrievedCard
-RagRetrieveResponse
-```
-
-Suggested request:
-
-```json
-{
-  "question": "What is singular value decomposition?",
-  "course_id": "uncategorized",
-  "job_id": null,
-  "top_k": 5,
-  "min_score": 0.25
-}
-```
-
-Suggested response:
-
-```json
-{
-  "question": "What is singular value decomposition?",
-  "results": [
-    {
-      "card_id": "...",
-      "job_id": "...",
-      "title": "Singular Value Decomposition",
-      "summary": "...",
-      "score": 0.82,
-      "source_start_seconds": 724.0,
-      "source_end_seconds": 738.0
-    }
-  ]
-}
-```
-
-Knowledge to learn:
-
-- Pydantic request models
-- Pydantic response models
-- validation with `Field`
-- why API schema comes before service code
-
-Tests:
-
-- empty question is rejected
-- `top_k` must be at least 1
-- `min_score` must be within a sensible range
-
-### Step 17.1.3: Pure Ranking Function
-
-Create:
-
-```text
-backend/app/rag_retriever.py
-```
-
-Add a pure function:
-
-```text
-rank_cards_by_similarity(query_vector, candidates, top_k, min_score)
-```
-
-Input:
-
-```text
-query_vector: list[float]
-candidates: list[tuple[KnowledgeCard, CardEmbedding]]
-```
-
-Output:
-
-```text
-list[RetrievedCard]
-```
-
-Knowledge to learn:
-
-- cosine similarity
-- sorting by score
-- top-k filtering
-- pure functions
-- why pure functions are easy to test
-
-Tests:
-
-```text
-query = [1, 0]
-card A = [0.9, 0.1]
-card B = [0, 1]
-expected: card A ranks first
-```
-
-### Step 17.1.4: Retrieval Service
-
-Create:
-
-```text
-backend/app/rag_service.py
-```
-
-Responsibilities:
-
-```text
-1. validate course_id or job_id
-2. ensure card embeddings exist
-3. embed the user question
-4. load card + embedding candidates
-5. call rank_cards_by_similarity
-```
-
-Important design:
-
-```text
-card embeddings are stored ahead of time
-query embedding is computed at request time
-```
-
-Use:
-
-- `SentenceTransformerEmbedder`
-- `card_embedding_service.embed_course_cards`
-- `card_embedding_service.embed_job_cards`
-- `card_embedding_store.list_card_embeddings_for_course`
-- `card_embedding_store.list_card_embeddings_for_job`
-- `knowledge_card_store.get_card`
-
-Knowledge to learn:
-
-- service-layer orchestration
-- dependency injection with a fake embedder in tests
-- why query embedding is not stored
-- how stale/missing card embeddings are handled
-
-Tests:
-
-- fake embedder returns a query vector
-- two cards exist
-- one card is closer to the query
-- service returns the closer card first
-
-### Step 17.1.5: Retrieval API
-
-Add to `main.py`:
-
-```text
-POST /rag/retrieve
-```
-
-This endpoint returns related cards only.
-
-It should not call Qwen yet.
-
-Knowledge to learn:
-
-- FastAPI POST endpoint
-- request body parsing
-- response models
-- mapping service errors to HTTP errors
-
-Tests:
-
-- request with `course_id` returns top cards
-- request with `job_id` returns only that job's cards
-- missing course/job returns 404
-
-### Step 17.1.6: Frontend Ask Tab
-
-Add an Ask tab to the right rail:
-
-```text
-Cards | Ask
-```
-
-Ask tab UI:
-
-```text
-question input
-retrieve button
-loading state
-error state
-top retrieved cards
-score display
-```
-
-Do not add answer generation yet.
-
-Knowledge to learn:
-
-- React state
-- controlled inputs
-- `fetch` POST requests
-- loading/error states
-- conditional rendering
-
-## Milestone 17.2: RAG Answer Generation
-
-After retrieval quality is inspectable, add answer generation.
-
-Flow:
-
-```text
-question
--> retrieve top-k cards
--> build grounded prompt
--> Qwen via Ollama
--> answer with citations
-```
-
-API:
-
-```text
-POST /rag/query
-```
-
-Response:
-
-```json
-{
-  "answer": "...",
-  "citations": [
-    {
-      "card_id": "...",
-      "title": "...",
-      "score": 0.82,
-      "source_start_seconds": 724.0,
-      "source_end_seconds": 738.0
-    }
-  ],
-  "retrieved_cards": []
-}
-```
-
-Prompt rule:
-
-```text
-Use only retrieved cards.
-If the cards do not contain enough evidence, say that there is not enough
-evidence.
-```
-
-Knowledge to learn:
-
-- prompt construction
-- grounded generation
-- citations
-- answer abstention
-- local Qwen/Ollama API calls
-
-## Milestone 17.3: RAG Query Logs
-
-Store each query for later evaluation.
-
-Potential table:
-
-```text
-rag_query_logs
-- id
-- question
-- course_id
-- job_id
-- top_k
-- min_score
-- retrieved_card_ids_json
-- scores_json
-- answer
-- model
-- latency_ms
-- created_at
-```
-
-Knowledge to learn:
-
-- experiment logging
-- retrieval debugging
-- latency measurement
-- baseline evaluation
-
-## Milestone 17.4: Baseline Evaluation
-
-Add simple evaluation before graph RAG.
-
-Metrics:
-
-- retrieval hit rate
-- average top-1 score
-- answer groundedness
-- unsupported answer rate
-- citation correctness
-- latency
-- user feedback: good / bad / needs edit
-
-Resume angle:
-
-```text
-I built a local RAG baseline and logged retrieval quality, grounding, and
-latency so later graph-based retrieval methods could be compared against a
-measurable baseline.
-```
-
-## Future: Graph RAG Comparison
-
-After ordinary dense RAG works, add graph retrieval.
-
-Future flow:
-
-```text
-question
--> dense retrieval anchors
--> card similarity graph expansion
--> evidence subgraph
--> answer with citations
-```
-
-Future components:
-
-- `card_similarity_edges`
-- relation types:
-  - related
-  - prerequisite
-  - example_of
-  - contrast_with
-  - part_of
-- manual edge editing
-- graph visualization
-- query-to-anchor evaluation
-
-## Future: Learned Retriever And Router
-
-Only after baseline and graph RAG are measurable, start learning.
-
-Possible path:
-
-```text
-query embedding
--> learned projection layer
--> better anchor retrieval
--> graph router
--> selected route
--> answer generation
-```
-
-Training data sources:
-
-- user searches
-- clicked cards
-- saved/deleted cards
-- answer feedback
-- manual edits
-- citation clicks
-
-This is where the project can move toward agentic RL:
-
-```text
-state = query + selected evidence so far
-action = choose next card / stop / answer
-reward = grounded answer quality + user feedback
-```
-
-Do not start here. Use the dense RAG baseline first.
-
+This is the bridge to the longer-term agentic RL research direction.

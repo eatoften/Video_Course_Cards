@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "protocol_id": "cs231n-grounded-answer-r3-v3-dense-vs-trusted-graph",
+  "corpus_sha256": "1a00fff655b303d20ae9db6b658a9fff96ae689a6040a74885d4c2cad8666130",
+  "benchmark_sha256": "aedca7b92e2d3608d1fe63882eb1cfabc198878aa7621fdce2d45672552245a4",
+  "review_sha256": "610180d403fde5078c1660457d7552face349ab36ec53ade8d4b8481ce781fee",
+  "retrieval_report_path": "backend/data/rag_lab/r2/rag-r2-20260721T125556Z/retrieval_report.json",
+  "retrieval_report_file_sha256": "d0843e5125261aa0e32f52d64a7b086a023f6d35af9f07984f3694e9b63d9272",
+  "split": "development",
+  "systems": ["dense", "dense_graph_trusted"],
+  "model": "qwen3:4b",
+  "model_digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+  "temperature": 0.0,
+  "max_tokens": 400,
+  "top_k": 5,
+  "context_budget_characters": 6000,
+  "prompt_version": "grounded-card-claim-only-json-v2",
+  "semantic_evaluation_model": "sentence-transformers/all-MiniLM-L6-v2"
+}

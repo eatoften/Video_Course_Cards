@@ -1,0 +1,303 @@
+{
+  "schema_version": "1.0",
+  "study": "Card graph as an associative knowledge structure",
+  "status": "exploratory_candidate_graph",
+  "corpus_sha256": "1a00fff655b303d20ae9db6b658a9fff96ae689a6040a74885d4c2cad8666130",
+  "review_sha256": "610180d403fde5078c1660457d7552face349ab36ec53ade8d4b8481ce781fee",
+  "embeddings_sha256": "d5f7cdf9e1b12b5c3a86abadc35e0209e1608775f1658203126fe86e8bd68a83",
+  "configuration": {
+    "neighborhood_k": 5,
+    "matched_random_samples": 5000,
+    "random_seed": 20260721,
+    "lecture_matching": "same-versus-cross-lecture edge counts"
+  },
+  "structure": {
+    "card_count": 118,
+    "accepted_edge_count": 20,
+    "covered_node_count": 32,
+    "node_coverage": 0.2711864406779661,
+    "isolated_node_count": 86,
+    "edge_component_count": 12,
+    "component_count_including_isolates": 98,
+    "edge_component_sizes": [
+      4,
+      3,
+      3,
+      3,
+      3,
+      3,
+      3,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "largest_edge_component_size": 4,
+    "relation_type_counts": {
+      "contrast_with": 5,
+      "example_of": 1,
+      "part_of": 5,
+      "prerequisite": 2,
+      "related": 7
+    },
+    "same_lecture_edge_count": 16,
+    "cross_lecture_edge_count": 4
+  },
+  "association": {
+    "accepted_edge_cosine_mean": 0.5154538655529601,
+    "matched_random_nonedge": {
+      "mean": 0.26733827570587737,
+      "confidence_interval_95": [
+        0.20859218375508776,
+        0.329881518053434
+      ],
+      "accepted_minus_random_mean": 0.24811558984708276,
+      "monte_carlo_probability_random_at_least_observed": 0.0001999600079984003
+    },
+    "directed_endpoint_count": 40,
+    "dense_neighbor_rank_mean": 7.775,
+    "dense_neighbor_rank_median": 4.0,
+    "endpoints_outside_dense_top_k": 15,
+    "endpoints_outside_dense_top_k_rate": 0.375,
+    "edges_with_nonlocal_endpoint": 9,
+    "edges_with_nonlocal_endpoint_rate": 0.45
+  },
+  "largest_component_examples": [
+    {
+      "size": 4,
+      "cards": [
+        {
+          "card_id": "4c0fc6a4b5d44cdc95b85ada6e28c9c5",
+          "title": "Basic Neural Network Structure",
+          "lecture_name": "lecture 4.mp4"
+        },
+        {
+          "card_id": "7ca85733629a4735bd0e06c2cca3c8dc",
+          "title": "ReLU Activation",
+          "lecture_name": "lecture 4.mp4"
+        },
+        {
+          "card_id": "9d33116b2f694f518ef282546ffd91f9",
+          "title": "Non-linearity in Neural Networks",
+          "lecture_name": "lecture 4.mp4"
+        },
+        {
+          "card_id": "bf317da392594f05bdac0e20b7ad1a72",
+          "title": "Activation Functions in Neural Networks",
+          "lecture_name": "lecture 4.mp4"
+        }
+      ]
+    },
+    {
+      "size": 3,
+      "cards": [
+        {
+          "card_id": "0cd52a38bc144abaa1cd993c2ee003d1",
+          "title": "Softmax Loss Function",
+          "lecture_name": "lecture 2.mp4"
+        },
+        {
+          "card_id": "4a407f4bb73746a98e224c752f37ab67",
+          "title": "Multinomial Logistic Regression",
+          "lecture_name": "lecture 2.mp4"
+        },
+        {
+          "card_id": "960716019d1a4039a5871c66052fc256",
+          "title": "Loss Function Definition",
+          "lecture_name": "lecture 2.mp4"
+        }
+      ]
+    },
+    {
+      "size": 3,
+      "cards": [
+        {
+          "card_id": "2213cfe021d4452b9e31cdc3aa0af925",
+          "title": "Image Classification Core Task",
+          "lecture_name": "lecture 2.mp4"
+        },
+        {
+          "card_id": "6aa4ccc4f8fb40d09c08426862b61e22",
+          "title": "Computer Vision in AI",
+          "lecture_name": "lecture 1.mp4"
+        },
+        {
+          "card_id": "eac6357dce724f13b82d37cb9e963451",
+          "title": "Image Pixel Representation",
+          "lecture_name": "lecture 2.mp4"
+        }
+      ]
+    },
+    {
+      "size": 3,
+      "cards": [
+        {
+          "card_id": "3018ed179ad8401186a4b6f945389016",
+          "title": "Lambda's Role in Regularization",
+          "lecture_name": "lecture 4.mp4"
+        },
+        {
+          "card_id": "38722f86121e43eda5a05613219bcb78",
+          "title": "Regularization",
+          "lecture_name": "lecture 3.mp4"
+        },
+        {
+          "card_id": "bc367cd31e904ed1b63a5e0c7224a581",
+          "title": "Regularization and Model Simplicity",
+          "lecture_name": "lecture 3.mp4"
+        }
+      ]
+    },
+    {
+      "size": 3,
+      "cards": [
+        {
+          "card_id": "351f23bedbc24f7ca5dd4ff435b5cc19",
+          "title": "Common Pooling Operations",
+          "lecture_name": "lecture 5.mp4"
+        },
+        {
+          "card_id": "ab670a678a0b46b29da22b688a807b07",
+          "title": "Stride Convolution Downsampling",
+          "lecture_name": "lecture 5.mp4"
+        },
+        {
+          "card_id": "ea7393e1bbe349d790bdebd3a5ae6e79",
+          "title": "Pooling Nonlinearity",
+          "lecture_name": "lecture 5.mp4"
+        }
+      ]
+    }
+  ],
+  "nonlocal_association_examples": [
+    {
+      "source_card_id": "eac6357dce724f13b82d37cb9e963451",
+      "source_title": "Image Pixel Representation",
+      "source_lecture": "lecture 2.mp4",
+      "target_card_id": "2213cfe021d4452b9e31cdc3aa0af925",
+      "target_title": "Image Classification Core Task",
+      "target_lecture": "lecture 2.mp4",
+      "relation_type": "prerequisite",
+      "same_lecture": true,
+      "cosine_similarity": 0.2835611382092716,
+      "source_to_target_dense_rank": 13,
+      "target_to_source_dense_rank": 59
+    },
+    {
+      "source_card_id": "5ca42551447348a6907a9a28893884e8",
+      "source_title": "Gradient Propagation for Basic Operations",
+      "source_lecture": "lecture 4.mp4",
+      "target_card_id": "fbc9a84857b34c33aaed60fe2743a720",
+      "target_title": "Computational Graphs",
+      "target_lecture": "lecture 5.mp4",
+      "relation_type": "part_of",
+      "same_lecture": false,
+      "cosine_similarity": 0.2925968751673642,
+      "source_to_target_dense_rank": 32,
+      "target_to_source_dense_rank": 33
+    },
+    {
+      "source_card_id": "40db2e3e8e624fb78729551eba4e937a",
+      "source_title": "Loss Function and Gradient Calculation",
+      "source_lecture": "lecture 3.mp4",
+      "target_card_id": "8f5901578383484d864d8501ae07e8f0",
+      "target_title": "Gradient Checks",
+      "target_lecture": "lecture 3.mp4",
+      "relation_type": "prerequisite",
+      "same_lecture": true,
+      "cosine_similarity": 0.3985003884602758,
+      "source_to_target_dense_rank": 19,
+      "target_to_source_dense_rank": 5
+    },
+    {
+      "source_card_id": "bfc2010fb711426f9a0360b259a325a4",
+      "source_title": "Backpropagation Definition",
+      "source_lecture": "lecture 1.mp4",
+      "target_card_id": "fbc9a84857b34c33aaed60fe2743a720",
+      "target_title": "Computational Graphs",
+      "target_lecture": "lecture 5.mp4",
+      "relation_type": "related",
+      "same_lecture": false,
+      "cosine_similarity": 0.36628751481057314,
+      "source_to_target_dense_rank": 13,
+      "target_to_source_dense_rank": 13
+    },
+    {
+      "source_card_id": "d44b45ece2d047aaa14cba32bfb7c381",
+      "source_title": "Momentum Update Mechanism",
+      "source_lecture": "lecture 3.mp4",
+      "target_card_id": "52331435de824b56ae48168ca1707cfc",
+      "target_title": "RMSProp Mechanism",
+      "target_lecture": "lecture 3.mp4",
+      "relation_type": "contrast_with",
+      "same_lecture": true,
+      "cosine_similarity": 0.3508587036794055,
+      "source_to_target_dense_rank": 13,
+      "target_to_source_dense_rank": 6
+    },
+    {
+      "source_card_id": "ea7393e1bbe349d790bdebd3a5ae6e79",
+      "source_title": "Pooling Nonlinearity",
+      "source_lecture": "lecture 5.mp4",
+      "target_card_id": "351f23bedbc24f7ca5dd4ff435b5cc19",
+      "target_title": "Common Pooling Operations",
+      "target_lecture": "lecture 5.mp4",
+      "relation_type": "part_of",
+      "same_lecture": true,
+      "cosine_similarity": 0.3198205213938199,
+      "source_to_target_dense_rank": 12,
+      "target_to_source_dense_rank": 4
+    },
+    {
+      "source_card_id": "4c0fc6a4b5d44cdc95b85ada6e28c9c5",
+      "source_title": "Basic Neural Network Structure",
+      "source_lecture": "lecture 4.mp4",
+      "target_card_id": "9d33116b2f694f518ef282546ffd91f9",
+      "target_title": "Non-linearity in Neural Networks",
+      "target_lecture": "lecture 4.mp4",
+      "relation_type": "contrast_with",
+      "same_lecture": true,
+      "cosine_similarity": 0.452346050378078,
+      "source_to_target_dense_rank": 9,
+      "target_to_source_dense_rank": 8
+    },
+    {
+      "source_card_id": "7ca85733629a4735bd0e06c2cca3c8dc",
+      "source_title": "ReLU Activation",
+      "source_lecture": "lecture 4.mp4",
+      "target_card_id": "bf317da392594f05bdac0e20b7ad1a72",
+      "target_title": "Activation Functions in Neural Networks",
+      "target_lecture": "lecture 4.mp4",
+      "relation_type": "contrast_with",
+      "same_lecture": true,
+      "cosine_similarity": 0.5175354549258243,
+      "source_to_target_dense_rank": 4,
+      "target_to_source_dense_rank": 9
+    },
+    {
+      "source_card_id": "7ca85733629a4735bd0e06c2cca3c8dc",
+      "source_title": "ReLU Activation",
+      "source_lecture": "lecture 4.mp4",
+      "target_card_id": "9d33116b2f694f518ef282546ffd91f9",
+      "target_title": "Non-linearity in Neural Networks",
+      "target_lecture": "lecture 4.mp4",
+      "relation_type": "related",
+      "same_lecture": true,
+      "cosine_similarity": 0.45365671508451627,
+      "source_to_target_dense_rank": 7,
+      "target_to_source_dense_rank": 6
+    }
+  ],
+  "limitations": [
+    "The graph decisions are model-assisted candidates, not independent human labels.",
+    "Graph coverage is sparse, so this audit cannot establish large-scale behavior.",
+    "Dense-neighbor novelty measures structural difference, not educational usefulness.",
+    "The matched random baseline controls lecture locality but not concept frequency or degree."
+  ],
+  "input_file_sha256": {
+    "corpus": "bbc4985cddc859f453a33023b868425e34da9f71694e61615f288f942fc8e0a4",
+    "review": "6a73918655906b3f1b6679b478afeda669c24b38e23f2261e4dec58621fdfbf4",
+    "embeddings": "0636f61a8eb1ed561328ea55be5d6731eef1e9201a772f72f14f752f65cc7a07"
+  }
+}

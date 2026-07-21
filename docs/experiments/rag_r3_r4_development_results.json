@@ -1,0 +1,24 @@
+{
+  "study": "R3 grounded generation and R4 graph comparison",
+  "status": "exploratory_development",
+  "answer_run_id": "rag-r3-20260721T132519Z",
+  "question_count": 40,
+  "generation_model": "qwen3:4b",
+  "generation_model_digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+  "systems": {
+    "dense": {"generation_success_rate": 1.0, "abstention_f1": 0.9841269841, "gold_claim_citation_recall": 0.8125, "citation_precision": 0.8125, "reference_answer_cosine_proxy": 0.8547187955, "median_generation_latency_ms": 6883.862},
+    "dense_graph_trusted": {"generation_success_rate": 1.0, "abstention_f1": 0.9841269841, "gold_claim_citation_recall": 0.8333333333, "citation_precision": 0.8163265306, "reference_answer_cosine_proxy": 0.8565742802, "median_generation_latency_ms": 6864.14365}
+  },
+  "graph_effect": {
+    "top_5_order_changed": 19,
+    "top_5_set_changed": 9,
+    "answer_changed": 8,
+    "gold_claim_recall_wins": 1,
+    "gold_claim_recall_ties": 39,
+    "gold_claim_recall_losses": 0,
+    "overall_gold_claim_recall_difference": 0.015625,
+    "overall_gold_claim_recall_ci95": [0.0, 0.046875],
+    "multi_hop_gold_claim_recall_difference": 0.0
+  },
+  "automatic_evaluation_warning": "Reference cosine is not answer correctness; correctness and entailment await independent human review."
+}

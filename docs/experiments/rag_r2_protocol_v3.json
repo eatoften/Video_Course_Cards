@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "protocol_id": "cs231n-card-retrieval-r2-v3-calibrated-graph-confidence",
+  "corpus_path": "backend/data/rag_lab/r1/corpus-v1.json",
+  "corpus_sha256": "1a00fff655b303d20ae9db6b658a9fff96ae689a6040a74885d4c2cad8666130",
+  "benchmark_path": "backend/data/rag_lab/r1/benchmark-candidate-v2.json",
+  "benchmark_sha256": "aedca7b92e2d3608d1fe63882eb1cfabc198878aa7621fdce2d45672552245a4",
+  "trusted_graph_path": "backend/data/rag_lab/r1/annotation-review-candidate-v2.json",
+  "trusted_graph_sha256": "610180d403fde5078c1660457d7552face349ab36ec53ade8d4b8481ce781fee",
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "top_k_values": [1, 3, 5],
+  "bm25_k1": 1.2,
+  "bm25_b": 0.75,
+  "rrf_k": 60,
+  "graph_seed_k": 2,
+  "graph_weight": 0.35,
+  "graph_hops": 1,
+  "confidence_score_policy": "dense_anchor_for_graph",
+  "bootstrap_iterations": 5000,
+  "bootstrap_seed": 20260721
+}

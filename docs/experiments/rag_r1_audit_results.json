@@ -1,0 +1,22 @@
+{
+  "study": "R1 candidate benchmark audit",
+  "status": "pending_independent_human_review",
+  "corpus_sha256": "1a00fff655b303d20ae9db6b658a9fff96ae689a6040a74885d4c2cad8666130",
+  "benchmark_sha256": "aedca7b92e2d3608d1fe63882eb1cfabc198878aa7621fdce2d45672552245a4",
+  "review_sha256": "610180d403fde5078c1660457d7552face349ab36ec53ade8d4b8481ce781fee",
+  "questions": 100,
+  "development_questions": 40,
+  "test_questions": 60,
+  "category_counts": {
+    "factual": 20,
+    "concept": 20,
+    "comparison": 20,
+    "multi_hop": 20,
+    "unanswerable": 20
+  },
+  "candidate_v1_quality_flags": 66,
+  "candidate_v2_quality_flags": 0,
+  "tracked_revisions": 34,
+  "candidate_supported_claims": 35,
+  "candidate_graph_edges": 20
+}
