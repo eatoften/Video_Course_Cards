@@ -1,21 +1,21 @@
 <h1 align="center">Video Course Cards</h1>
 
 <p align="center">
-  <strong>A local-first learning system and research testbed for turning technical lectures into timestamp-grounded knowledge.</strong>
+  <strong>An evidence-centered course learning system built around inspectable knowledge cards.</strong>
 </p>
 
 <p align="center">
-  Video, audio, slides, and documents become structured cards whose claims remain linked to source evidence, course context, and review history.
+  The application turns timestamped lecture transcripts into editable claim-evidence units and reuses those units across course maps, source-backed study documents, spaced review, retrieval, typed relations, and portable export. Separate research packages test what is lost or gained at three boundaries: course evidence to cards, questions to evidence, and cards to navigable course structure.
 </p>
 
 <p align="center">
-  <a href="https://github.com/eatoften/Video_Course_Cards/releases/latest"><strong>Download for Windows</strong></a>
+  <a href="https://github.com/eatoften/Video_Course_Cards/releases/latest"><strong>Windows release</strong></a>
   &nbsp;|&nbsp;
-  <a href="docs/Multimodal%20CNN%20ViT%20reader%20study.md">Multimodal study</a>
+  <a href="docs/Multimodal%20CNN%20ViT%20reader%20study.md">Multimodal report</a>
   &nbsp;|&nbsp;
-  <a href="docs/RAG%20retrieval%20and%20graph%20study.md">RAG study</a>
+  <a href="docs/RAG%20retrieval%20and%20graph%20study.md">RAG report</a>
   &nbsp;|&nbsp;
-  <a href="docs/Graph%20as%20associative%20knowledge%20structure.md">Graph hypothesis</a>
+  <a href="docs/Graph%20as%20associative%20knowledge%20structure.md">Graph hypotheses</a>
   &nbsp;|&nbsp;
   <a href="docs/roadmap.md">Roadmap</a>
 </p>
@@ -24,26 +24,34 @@
   <a href="https://github.com/eatoften/Video_Course_Cards/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/eatoften/Video_Course_Cards?label=release"></a>
   <img alt="Python 3.11" src="https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white">
   <img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white">
-  <img alt="React" src="https://img.shields.io/badge/React-TypeScript-149ECA?logo=react&logoColor=white">
+  <img alt="React TypeScript" src="https://img.shields.io/badge/React-TypeScript-149ECA?logo=react&logoColor=white">
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2.x-24C8DB?logo=tauri&logoColor=white">
   <img alt="SQLite" src="https://img.shields.io/badge/storage-SQLite-003B57?logo=sqlite&logoColor=white">
 </p>
 
-## Overview
+## Why This Representation
 
-Video Course Cards is both a working Windows desktop application and a controlled experimental pipeline. It is not designed as another generic "chat with a transcript" wrapper. Its central representation is a **claim-grounded knowledge card**:
+A transcript is rich in evidence but awkward to navigate and review. A free-form
+summary is compact but can discard provenance. Video Course Cards uses a
+`KnowledgeCard` as the intermediate representation between raw course material
+and later learning tasks:
 
 ```json
 {
+  "id": "card_...",
+  "card_kind": "concept",
   "title": "Singular Value Decomposition",
+  "summary": "An important matrix factorization discussed with orthogonal and diagonal structure.",
   "claims": [
     {
-      "text": "SVD factors a matrix using orthogonal and diagonal structure.",
+      "id": "claim_...",
+      "text": "SVD is an important matrix factorization.",
       "evidence": [
         {
-          "quote": "called the singular value decomposition",
-          "start_seconds": 724.0,
-          "end_seconds": 738.0
+          "id": "evidence_...",
+          "quote": "That's a very important factorization called the singular value decomposition.",
+          "segment_start_seconds": 724.0,
+          "segment_end_seconds": 738.0
         }
       ]
     }
@@ -51,67 +59,119 @@ Video Course Cards is both a working Windows desktop application and a controlle
 }
 ```
 
-These cards give the product and research code a common unit for generation, evidence auditing, retrieval, review, graph organization, and Markdown export. SQLite remains the source of truth; exported Markdown is a portable snapshot.
+Claims and evidence have stable IDs. Cards remain editable and can own multiple
+independently scheduled recall prompts. SQLite is the source of truth; Markdown
+and Obsidian exports are portable snapshots.
 
-### Project status
+This representation connects parts of the application that would otherwise be
+separate demos:
 
-| Track | Current state | Evidence status |
-| --- | --- | --- |
-| Desktop learning workspace | Installable Windows demo, release `v0.1.1` | Product prototype |
-| CNN vs ViT slide-line OCR | One frozen lecture-level test evaluation | Confirmatory under the recorded protocol |
-| OCR-to-card error cascade | Same local Qwen and card evaluator for all readers | Exploratory after an infrastructure revision |
-| Card retrieval and grounded RAG | Five retrieval systems, fixed-budget Qwen comparison | Exploratory development split; human review pending |
-| Associative knowledge graph | Structural audit and falsifiable scale hypotheses | Candidate graph; not a large-scale result |
+```text
+timestamped transcript -> claims and evidence -> KnowledgeCard
+KnowledgeCard -> Course Map | Study | Review | Retrieve | Explore | Export
+```
+
+Imported PPTX, PDF, DOCX, Markdown, and text files currently provide cited
+source units for Study documents. Direct visual evidence to card generation is
+implemented in the experimental pipeline, not yet in the desktop product.
+
+## Research Program
+
+The unifying question is not simply whether an LLM can summarize a lecture:
+
+> How can course evidence be compressed into durable learning units without
+> losing provenance, and which representations help a learner organize,
+> retrieve, and revisit those units?
+
+The repository studies that question through three linked but separately
+evaluated problems:
+
+1. **Evidence acquisition:** under a controlled small-data protocol, how do
+   visual readers preserve slide text, and how do their errors propagate into
+   concepts, claims, citations, and usable cards?
+2. **Evidence retrieval:** when cards are the retrieval unit, how do BM25,
+   dense embeddings, rank fusion, and graph expansion compare under the same
+   evidence budget?
+3. **Knowledge organization:** when do hierarchy and typed card relations add
+   useful structure beyond nearest-neighbor similarity, especially for
+   exploration, prerequisite paths, and review planning?
+
+These are not presented as one finished scientific claim. The OCR reader study
+has one sealed lecture-level evaluation. The card cascade and RAG results are
+exploratory. The graph work currently establishes a measurement protocol and
+scale hypotheses, not a demonstrated memory advantage.
 
 ## System
 
+### Product path
+
 ```mermaid
 flowchart LR
-    V["Lecture video"] --> P["ffprobe / FFmpeg"]
-    P --> W["faster-whisper"]
-    W --> C["Semantic chunks"]
-    S["Slides / documents"] --> M["Page reading and OCR lab"]
-    C --> G["Grounded card generation"]
-    M --> G
-    G --> DB[("SQLite")]
-    DB --> R["FSRS review"]
-    DB --> X["Markdown / Obsidian export"]
-    DB --> E["Card embeddings"]
-    E --> D["Dense direct-answer retrieval"]
-    DB --> K["Typed knowledge graph"]
-    K --> L["Exploration and learning paths"]
+    V["Lecture video"] --> P["ffprobe and FFmpeg"]
+    P --> W["faster-whisper transcript"]
+    W --> C["Embedding-based semantic chunks"]
+    C --> Q["Local Qwen card generation"]
+    Q --> K[("Knowledge cards in SQLite")]
+
+    F["PPTX / PDF / DOCX / text"] --> U["Locatable source units"]
+    U --> S["Versioned Study documents"]
+    K --> S
+
+    K --> M["Editable Course Map"]
+    K --> R["FSRS Review"]
+    K --> D["Dense retrieval"]
+    K --> G["Typed relation graph"]
+    K --> X["Markdown / Obsidian export"]
 ```
 
-The retrieval design now separates two roles:
+### Research path
 
-```text
-direct question -> Dense retrieval -> evidence gate -> grounded answer
-explore / review -> Dense anchor -> typed Graph -> concept trail
+```mermaid
+flowchart LR
+    A["Lecture frames and slides"] --> T["Transition and stable-frame baseline"]
+    T --> O["Shared line-crop OCR benchmark"]
+    O --> C1["CNN-CTC"]
+    O --> C2["ViT-CTC"]
+    O --> C3["RapidOCR reference"]
+    C1 --> P["Frozen OCR-to-card cascade"]
+    C2 --> P
+    C3 --> P
+
+    K["Frozen card snapshot"] --> B["BM25 / Dense / RRF"]
+    K --> G["Candidate typed graph"]
+    B --> E["Retrieval and grounded-answer evaluation"]
+    G --> E
+    G --> S["Structural graph audit"]
 ```
 
-Graph traversal is a knowledge-organization hypothesis, not an unconditional replacement for Dense retrieval.
-
-## Research Questions
-
-The repository currently investigates three connected problems:
-
-1. **Multimodal evidence:** how do slide-reading errors propagate into generated learning artifacts?
-2. **Grounded retrieval:** which simple RAG baseline best retrieves card, claim, and timestamp evidence under a fixed budget?
-3. **Associative structure:** when does a typed graph add useful nonlocal organization beyond embedding similarity?
-
-The research code is isolated from product services:
+Product and research code are deliberately separated:
 
 ```text
-backend/app              product APIs, SQLite workflows, local application
-backend/multimodal_lab   datasets, CNN/ViT models, trainers, sealed protocols
+backend/app              FastAPI services, SQLite workflows, local application
+backend/multimodal_lab   datasets, CNN/ViT readers, trainers, sealed protocols
 backend/rag_lab          frozen corpora, retrieval baselines, metrics, audits
 ```
 
-## Results
+## Evidence At A Glance
 
-### 1. Controlled slide-line recognition
+| Study or artifact | Evidence unit | Status | Supported conclusion |
+| --- | --- | --- | --- |
+| Windows desktop application | End-to-end local workflow | Product prototype, `v0.1.1` | The current card-centered workflow is runnable as an installable local application |
+| CNN vs ViT reader | 176 held-out lines from Lecture 5 | Sealed once under the recorded protocol | The matched CNN generalizes better than the matched scratch ViT in this small-data setting |
+| OCR-to-card cascade | 16 reconstructed pages, 48 generations | Exploratory | OCR and layout errors can survive valid JSON generation and damage card utility |
+| Retrieval baselines | 40 development questions over 118 cards | Exploratory, candidate labels | Dense retrieval is the strongest current direct-QA baseline |
+| Graph expansion | 8 development multi-hop questions | Exploratory, candidate graph | Expansion trades better multi-hop coverage for worse ordinary ranking in this sample |
+| Graph organization audit | 118 cards and 20 candidate edges | Hypothesis-forming | Some typed edges are nonlocal to Dense top-5, but the graph is too sparse for a scale claim |
 
-The frozen dataset contains 1,402 line crops from five independent CS231n lectures. Lectures 1-3 are training data, Lecture 4 is validation-only, and Lecture 5 was opened once for sealed evaluation. CNN and ViT share the same crops, vocabulary, augmentation, CTC head, decoder, trainer, checkpoint rule, and approximately matched parameter budget.
+## Experimental Results
+
+### 1. Small-data slide-line recognition
+
+The controlled reader dataset contains 1,402 line crops from five CS231n
+lectures. Lectures 1-3 form training data, Lecture 4 is validation-only, and
+Lecture 5 was opened once for sealed evaluation. CNN and ViT use the same real
+and synthetic training data, tokenizer, augmentation, CTC projection and
+decoder, trainer, checkpoint rule, and approximately matched parameter count.
 
 | Reader | Parameters | CER down | WER down | Exact lines up | Median CPU ms/line down |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -119,13 +179,21 @@ The frozen dataset contains 1,402 line crops from five independent CS231n lectur
 | ViT-CTC v1 | 111,253 | 0.4461 | 0.9442 | 5 / 176 | **0.687** |
 | RapidOCR stored text | not measured | **0.0071** | **0.0408** | **158 / 176** | not measured |
 
-CNN minus ViT CER is `-0.3311`, with a paired 95% bootstrap interval of `[-0.4126, -0.2551]`; all 5,000 resamples favor CNN. Both models first passed the same 32-line exact-overfit gate, so the difference concerns small-data generalization rather than basic trainability.
+CNN minus ViT CER is `-0.3311`, with a paired 95% bootstrap interval of
+`[-0.4126, -0.2551]`; all 5,000 bootstrap resamples favor CNN. Both models
+first passed the same 32-line exact-overfit gate.
 
-RapidOCR is a practical recognition reference, not a complete page-reading comparison. Its stored text uses already accepted detector polygons, so detector recall and latency are outside this table.
+This result supports a data-regime conclusion, not a universal claim that CNNs
+are better than ViTs. The scratch ViT is faster here but generalizes poorly from
+the available lecture-line data. RapidOCR is a practical pretrained reference,
+not a fully matched system: its stored text is evaluated on already accepted
+detector polygons, so detector recall and detector latency are excluded.
 
-### 2. OCR-to-card error propagation
+### 2. Reader errors after card generation
 
-Predicted lines were reconstructed into the same 16 slide pages and passed to frozen `qwen3:4b` generation at temperature zero. Gold concepts were not included in prompts.
+Predicted lines were reconstructed into the same 16 pages and passed to frozen
+`qwen3:4b` generation at temperature zero. Gold concepts were not included in
+the prompt.
 
 | OCR source | Concept recall up | Grounded claim precision up | Citation correctness up | Usable-card conversion up |
 | --- | ---: | ---: | ---: | ---: |
@@ -133,17 +201,27 @@ Predicted lines were reconstructed into the same 16 slide pages and passed to fr
 | ViT-CTC v1 | 0.4375 | 0.4375 | 0.0000 | 0.0000 |
 | RapidOCR stored text | **0.7500** | **0.9167** | **0.9231** | **0.6875** |
 
-Three findings matter:
+The main observation is an interface failure: all 16 ViT inputs produced
+parseable card outputs, yet none met the usable-card criterion. Syntactic
+generation success therefore does not establish concept recovery, grounding,
+or citation quality. Errors involving formulas, arrows, grouping, and layout
+also show why character accuracy alone cannot describe slide understanding.
 
-- OCR quality propagates into concept recovery and usable cards.
-- Successful JSON generation is not evidence of content quality.
-- Character accuracy is insufficient when page layout or diagram direction carries meaning.
+This cascade is exploratory because it contains 16 pages, follows an
+infrastructure revision, and uses one model-assisted source auditor. The
+reader comparison remains the sealed result; downstream card metrics do not.
 
-The reader comparison is confirmatory; this downstream cascade is explicitly exploratory. See the [full multimodal methods, hashes, error slices, and validity threats](docs/Multimodal%20CNN%20ViT%20reader%20study.md) and the [compact protocol artifact](docs/experiments/assignment_5_protocol_results.json).
+Methods, hashes, error slices, and threats to validity are recorded in the
+[multimodal report](docs/Multimodal%20CNN%20ViT%20reader%20study.md) and
+[compact protocol artifact](docs/experiments/assignment_5_protocol_results.json).
 
-### 3. Card retrieval and grounded generation
+### 3. Card retrieval under a fixed budget
 
-The RAG development study freezes 118 cards, 140 claims, 150 evidence spans, and a balanced 100-question candidate benchmark. Forty development questions are used below; the 60-question candidate test split is blocked until independent review.
+The RAG development study snapshots 118 cards, 140 claims, and 150 evidence
+spans. The candidate benchmark contains 100 questions; the table below uses the
+40-question development split. The 60-question test split remains blocked
+until question, evidence, claim, and graph annotations receive independent
+human review.
 
 | Retrieval system | Recall@5 up | MRR up | nDCG@5 up | Multi-hop joint R@3 up |
 | --- | ---: | ---: | ---: | ---: |
@@ -153,56 +231,87 @@ The RAG development study freezes 118 cards, 140 claims, 150 evidence spans, and
 | Dense + noisy graph | **1.000** | 0.875 | 0.904 | 0.750 |
 | Dense + candidate graph | **1.000** | 0.805 | 0.852 | **0.875** |
 
-Candidate graph expansion raises multi-hop joint Recall@3 by `0.125`, but lowers single-card nDCG@5 by `0.163`. Under the same top-5 context, prompt, Qwen digest, and character budget, graph expansion produces one gold-claim citation-recall win, 39 ties, and no multi-hop answer gain.
+Dense retrieval is the strongest current direct-question baseline. Candidate
+graph expansion increases multi-hop joint Recall@3 by `0.125` on eight
+development questions, while reducing single-card nDCG@5 by `0.163`. The
+corresponding bootstrap intervals are `[0.000, 0.375]` and
+`[-0.255, -0.077]`.
 
-Prompt-only abstention failed on all eight unsupported development questions. A frozen pre-generation Dense-confidence gate produced eight correct refusals and one shared false abstention, for `0.984` abstention F1. This threshold was selected and evaluated on development data and is not a test result.
+With the same top-5 context, prompt, Qwen digest, and character budget, graph
+expansion changes eight answers but yields only one gold-claim citation-recall
+win, 39 ties, and no multi-hop answer gain. Prompt-only refusal fails on all
+eight unsupported questions; a development-calibrated pre-generation Dense
+confidence gate reaches `0.984` abstention F1. Neither result is a held-out test
+claim.
 
-See the [RAG study](docs/RAG%20retrieval%20and%20graph%20study.md), [protocols and compact results](docs/experiments/), and [reproduction commands](backend/rag_lab/README.md).
+See the [RAG report](docs/RAG%20retrieval%20and%20graph%20study.md),
+[machine-readable results](docs/experiments/), and
+[RAG reproduction commands](backend/rag_lab/README.md).
 
-### 4. Graph as knowledge structure
+### 4. Typed graph as an organization hypothesis
 
-The same candidate graph was audited separately from QA reranking:
+The same candidate graph was audited independently of QA reranking:
 
 | Structural measurement | Result |
 | --- | ---: |
-| Cards covered by an accepted candidate edge | 32 / 118, 27.1% |
+| Cards covered by a candidate edge | 32 / 118, 27.1% |
 | Isolated cards | 86 |
 | Largest connected component | 4 cards |
 | Candidate-edge mean cosine | 0.515 |
-| Lecture-matched random non-edge mean | 0.267 |
+| Lecture-matched random non-edge mean cosine | 0.267 |
 | Edges with at least one endpoint outside Dense top-5 | 9 / 20, 45.0% |
 
-The graph is too sparse to support a large-scale associative-memory claim. However, some typed relations encode learning structure outside the nearest semantic neighborhood. This motivates a falsifiable dual-system hypothesis: use Dense for direct questions and evaluate typed, query-conditioned Graph activation for exploration, global organization, prerequisite sequencing, and personalized review.
+The graph is coherent enough to study but far too sparse to establish a
+large-scale associative-memory result. The current evidence supports a narrower
+hypothesis: typed relations may expose prerequisite, part-whole, contrast, and
+example structure that nearest-neighbor retrieval does not rank highly. Whether
+that structure improves exploration, curriculum sequencing, review, or learning
+must be tested at larger corpus sizes with independently verified edges and
+task-specific metrics.
 
-The analysis, null baseline, failure conditions, and scaling protocol are in [Graph as an Associative Knowledge Structure](docs/Graph%20as%20associative%20knowledge%20structure.md). Machine-readable results are in [rag_graph_organization_audit_v1.json](docs/experiments/rag_graph_organization_audit_v1.json).
+The null baseline, scale protocol, and explicit falsification conditions are in
+[Graph as an Associative Knowledge Structure](docs/Graph%20as%20associative%20knowledge%20structure.md).
 
-## Product Capabilities
+## Application
 
-The desktop application currently supports:
+The current desktop application supports:
 
-- media validation with `ffprobe`, audio extraction with FFmpeg, and timestamped faster-whisper transcription;
-- embedding-based semantic transcript chunking and manual or automatic card generation with local Qwen;
-- SQLite persistence for courses, jobs, transcripts, cards, claims, evidence, notes, relations, and review state;
-- a nested Course Map, typed card relations, graph exploration, and related-card suggestions;
-- independently scheduled FSRS recall prompts linked to grounded claims;
-- local PPTX, PDF, DOCX, Markdown, and text imports for concept study documents;
-- dense card retrieval in the application and controlled grounded-answer generation in the isolated RAG lab;
-- versioned study documents and Obsidian-friendly Markdown folder export;
-- a React/TypeScript interface packaged by Tauri with a FastAPI sidecar.
+- video validation with `ffprobe`, FFmpeg audio extraction, and timestamped
+  faster-whisper transcription;
+- embedding-based transcript chunking and manual or automatic grounded-card
+  generation with local Qwen;
+- SQLite persistence for courses, jobs, transcripts, cards, stable claims and
+  evidence, notes, source assets, topics, relations, and review state;
+- an editable hierarchical Course Map and embedding-assisted topic suggestions;
+- versioned Study documents around card anchors, with citations into imported
+  PPTX, PDF, DOCX, Markdown, and text sources;
+- multiple recall prompts per card and independent FSRS scheduling;
+- related-card retrieval, typed relation editing, and graph exploration;
+- card retrieval in the application, plus controlled answer generation in the
+  isolated RAG lab;
+- Obsidian-friendly Markdown export;
+- a React/TypeScript interface packaged with Tauri and a FastAPI sidecar.
 
-All course data stays on the local machine by default. Ollama and Sentence Transformer models are local dependencies rather than hosted APIs.
+All user data stays on the local machine by default. Ollama and Sentence
+Transformer models are local dependencies rather than hosted APIs.
 
-## Install
+## Installation
 
-Download the Windows installer from the [latest GitHub release](https://github.com/eatoften/Video_Course_Cards/releases/latest).
+Download the Windows installer from the
+[latest GitHub release](https://github.com/eatoften/Video_Course_Cards/releases/latest).
 
-The installer contains the Tauri shell, React interface, packaged FastAPI backend, and SQLite application. Large third-party runtimes and model weights are not bundled. Install the local generation model separately:
+The installer includes the Tauri shell, React interface, packaged FastAPI
+backend, and SQLite application. Model weights and large third-party runtimes
+are not bundled. Install the default local generation model separately:
 
 ```powershell
 ollama pull qwen3:4b
 ```
 
-FFmpeg, Ollama/Qwen, and the configured Sentence Transformer must be available for their corresponding features. The application exposes a local runtime status check. See [Local LLM setup](docs/local-llm.md) and [desktop packaging](docs/tauri-desktop.md).
+FFmpeg, Ollama/Qwen, and the configured Sentence Transformer must be available
+for the features that use them. The application exposes a runtime status check;
+see [Local LLM setup](docs/local-llm.md) and
+[desktop packaging](docs/tauri-desktop.md).
 
 Desktop data is stored under:
 
@@ -219,7 +328,9 @@ Current release constraints:
 
 ## Developer Quickstart
 
-Requirements: Python 3.11, [uv](https://docs.astral.sh/uv/), Node.js 22, FFmpeg, and Ollama. Rust, MSVC, the Windows SDK, and WebView2 are needed only for desktop builds.
+Requirements: Python 3.11, [uv](https://docs.astral.sh/uv/), Node.js 22,
+FFmpeg, and Ollama. Rust, MSVC, the Windows SDK, and WebView2 are needed only
+for desktop builds.
 
 ```powershell
 git clone https://github.com/eatoften/Video_Course_Cards.git
@@ -244,9 +355,10 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-Open `http://127.0.0.1:5174`. FastAPI documentation is at `http://127.0.0.1:8001/docs`.
+Open `http://127.0.0.1:5174`. FastAPI documentation is available at
+`http://127.0.0.1:8001/docs`.
 
-Run the Tauri desktop shell:
+Run the Tauri shell:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-desktop-backend.ps1
@@ -254,7 +366,7 @@ cd frontend
 npm.cmd run tauri:dev
 ```
 
-## Reproducing The Research
+## Reproducibility
 
 Run backend regression tests first:
 
@@ -263,37 +375,46 @@ cd backend
 uv run pytest
 ```
 
-Current verification: `302 passed`; the remaining warning comes from the installed Starlette/httpx TestClient compatibility layer.
+Current verification: `302 passed`. The remaining warning comes from the
+installed Starlette/httpx TestClient compatibility layer.
 
-Research entry points:
-
-| Study | Code | Methods and results |
+| Study | Implementation | Protocol and report |
 | --- | --- | --- |
-| Multimodal page transition and reading | `backend/multimodal_lab` | [Multimodal study](docs/Multimodal%20CNN%20ViT%20reader%20study.md) |
-| RAG retrieval and grounded generation | `backend/rag_lab` | [RAG lab reproduction](backend/rag_lab/README.md) |
-| Associative graph audit | `backend/rag_lab/run_graph_organization_audit.py` | [Graph hypothesis](docs/Graph%20as%20associative%20knowledge%20structure.md) |
+| Transition and page-reading baselines | `backend/multimodal_lab/transition_baseline.py`, `page_reading.py` | [Multimodal plan and records](docs/Multimodal%20upgrade%20plan.md) |
+| CNN-CTC vs ViT-CTC | `backend/multimodal_lab/models/` | [Reader study](docs/Multimodal%20CNN%20ViT%20reader%20study.md) |
+| OCR-to-card cascade | `backend/multimodal_lab/reader_card_cascade.py` | [Assignment 5 artifact](docs/experiments/assignment_5_protocol_results.json) |
+| Retrieval and grounded answers | `backend/rag_lab/` | [RAG lab commands](backend/rag_lab/README.md) |
+| Graph organization audit | `backend/rag_lab/graph_organization.py` | [Graph study](docs/Graph%20as%20associative%20knowledge%20structure.md) |
 
 The experiment lifecycle is:
 
 ```text
 versioned protocol
--> dataset and leakage audit
--> train/development decisions
--> frozen evaluation
--> compact result with hashes and limitations
+-> input and leakage audit
+-> train or development decisions
+-> frozen evaluation gate
+-> compact metrics, hashes, failures, and validity notes
 ```
 
-Generated videos, frames, line crops, transcripts, embeddings, checkpoints, and full prediction logs remain in ignored `backend/data/` directories. Git tracks code, protocol versions, source-review decisions, compact metrics, run IDs, hashes, and validity notes. Because lecture media cannot be redistributed, a fresh clone can inspect provenance and run tests but cannot reproduce exact numerical OCR results without recreating source data matching the recorded hashes.
+Generated videos, frames, line crops, transcripts, embeddings, checkpoints,
+and full prediction logs remain in ignored `backend/data/` directories. Git
+tracks code, protocol versions, source-review decisions, compact results,
+run IDs, hashes, and limitations. Because the lecture media cannot be
+redistributed, a fresh clone can inspect provenance and run tests but cannot
+reproduce the exact OCR numbers without recreating inputs that match the
+recorded hashes.
 
-The Lecture 5 OCR test has already been opened once and must not be used for further tuning. The RAG candidate test runner remains blocked until every benchmark item, gold claim, evidence span, and graph decision receives independent human review.
+The Lecture 5 OCR test has already been opened once and is closed to further
+tuning. The RAG candidate test runner remains blocked until its benchmark and
+graph annotations are independently reviewed and sealed.
 
-## Repository Layout
+## Repository Map
 
 ```text
 Video_Course_Cards/
 |-- backend/
 |   |-- app/                    # FastAPI product and SQLite services
-|   |-- multimodal_lab/         # datasets, CNN/ViT, training, protocols
+|   |-- multimodal_lab/         # datasets, readers, training, protocols
 |   |-- rag_lab/                # corpora, retrievers, metrics, graph audits
 |   |-- tests/                  # product and research regression tests
 |   `-- data/                   # ignored user data and experiment runs
@@ -315,63 +436,69 @@ Important entry points:
 | Video processing | `backend/app/video_pipeline.py` |
 | Semantic chunking | `backend/app/transcript_chunker.py` |
 | Grounded card generation | `backend/app/card_service.py` |
+| Card persistence | `backend/app/knowledge_card_store.py` |
 | Dense product retrieval | `backend/app/rag_service.py` |
-| CNN-CTC / ViT-CTC | `backend/multimodal_lab/models/` |
+| CNN-CTC and ViT-CTC | `backend/multimodal_lab/models/` |
 | Shared reader trainer | `backend/multimodal_lab/training/reader_trainer.py` |
 | Retrieval baselines | `backend/rag_lab/retrievers.py` |
-| RAG evaluation | `backend/rag_lab/metrics.py` |
-| Graph organization audit | `backend/rag_lab/graph_organization.py` |
+| RAG metrics | `backend/rag_lab/metrics.py` |
+| Graph audit | `backend/rag_lab/graph_organization.py` |
 
-## Research Hygiene
+## Claim Boundaries
 
-- Data splits are made at lecture level, not random line level.
-- CNN and ViT share data, tokenizer, output contract, trainer, evaluator, and checkpoint-selection policy.
-- Validation selects models; sealed test data evaluates frozen decisions.
-- RAG systems share the same corpus, embedding model, top-k, prompt, context budget, and local Qwen digest.
-- Protocols and reports record semantic hashes and input file hashes.
-- Resume and answer reuse are rejected when generation settings change.
-- Failed runs and protocol revisions remain documented.
-- Automatic semantic proxies are not reported as human correctness.
+The current evidence supports these statements:
 
-## Limitations
+- the repository contains a working local card-centered learning application;
+- under one frozen five-lecture protocol, the matched CNN reader outperforms
+  the matched scratch ViT reader on the sealed lecture;
+- on the candidate RAG development split, Dense is the strongest direct-QA
+  baseline and unconditional graph expansion introduces a ranking tradeoff;
+- some candidate typed edges capture relations outside Dense top-5.
 
-- The multimodal study covers five lectures from one course and one slide family.
-- OCR source labels still need an independent spot-check before publication-level claims.
-- RapidOCR results exclude detector recall and page-level detector latency.
-- The downstream card cascade contains only 16 pages and one model-assisted source auditor.
-- The RAG benchmark and 20 graph edges remain model-assisted candidates awaiting independent review.
-- Only eight development questions exercise multi-hop retrieval.
-- The graph covers 27.1% of cards and cannot establish large-scale associative behavior.
-- The current local 4B model and development-calibrated refusal gate are baselines, not final answer-quality claims.
+It does **not** yet establish that:
+
+- CNNs are generally better than ViTs for slide reading;
+- the visual pipeline is integrated into the released desktop workflow;
+- the candidate RAG labels and graph edges are independently human verified;
+- graph traversal improves answer quality or learner outcomes;
+- exact numerical experiments are reproducible without the source lectures.
 
 ## Next Experiments
 
-1. Complete independent RAG question, claim, evidence, and graph review; freeze thresholds and open the test split once.
-2. Grow the card corpus through incremental course snapshots and test a `task type x corpus scale` graph crossover.
-3. Compare always-Dense, unconditional graph expansion, typed traversal, query-conditioned PPR, and a task router under equal budgets.
-4. Add a newly held-out multimodal lecture with aligned audio, layout-aware reading, and a second independent card auditor.
-5. Evaluate graph-supported learning paths with prerequisite violations, discovery utility, delayed recall, and time-to-mastery.
+1. Complete independent review of RAG questions, claims, evidence, and graph
+   decisions, freeze thresholds, and open the test split once.
+2. Add a genuinely held-out multimodal lecture with aligned audio and slides,
+   layout-aware reading, and a second independent card auditor.
+3. Grow frozen card-corpus snapshots and test when direct retrieval, typed
+   traversal, or a task router is preferable under equal budgets.
+4. Compare graph-supported exploration and prerequisite paths using discovery,
+   path precision, prerequisite violations, delayed recall, and time-to-mastery.
+5. Preserve user corrections, review outcomes, and citation edits as an
+   evaluation dataset before attempting policy learning or agentic retrieval.
 
 ## Documentation
 
 | Document | Scope |
 | --- | --- |
-| [Multimodal CNN/ViT Reader Study](docs/Multimodal%20CNN%20ViT%20reader%20study.md) | OCR protocol, results, cascade, error analysis |
-| [Card Retrieval and Graph RAG Study](docs/RAG%20retrieval%20and%20graph%20study.md) | Benchmark, baselines, grounded generation, R4 comparison |
-| [Graph as an Associative Knowledge Structure](docs/Graph%20as%20associative%20knowledge%20structure.md) | Structural audit, hypotheses, falsification and scaling |
-| [RAG Research Roadmap](docs/rag-roadmap.md) | Formal test gate and later retrieval studies |
-| [Desktop Packaging](docs/tauri-desktop.md) | Sidecar, data paths, installer, release workflow |
-| [Project Roadmap](docs/roadmap.md) | Product and research milestones |
+| [Multimodal CNN/ViT Reader Study](docs/Multimodal%20CNN%20ViT%20reader%20study.md) | Controlled reader protocol, results, cascade, error analysis |
+| [Card Retrieval and Graph RAG Study](docs/RAG%20retrieval%20and%20graph%20study.md) | Candidate benchmark, baselines, grounded generation, R4 comparison |
+| [Graph as an Associative Knowledge Structure](docs/Graph%20as%20associative%20knowledge%20structure.md) | Structural audit, hypotheses, scale study, falsification conditions |
+| [RAG Research Roadmap](docs/rag-roadmap.md) | Human-review gate and later retrieval experiments |
+| [Multimodal Upgrade Plan](docs/Multimodal%20upgrade%20plan.md) | Assignment-style multimodal design and experiment history |
+| [Desktop Packaging](docs/tauri-desktop.md) | Sidecar, data paths, installer, and release workflow |
+| [Project Roadmap](docs/roadmap.md) | Product model, completed milestones, and deferred work |
 
-## Principles
+## Design Principles
 
-- Local data stays local by default.
-- Generated claims remain traceable to evidence.
-- Simple baselines precede complex agents.
-- Validation selects; test data evaluates frozen decisions.
-- User corrections become evaluation data before training data.
-- Negative results and limitations are part of the artifact.
+- Treat generated cards as evidence-bearing data, not finished prose.
+- Keep model suggestions distinguishable from accepted user structure.
+- Use simple baselines before adding agents or graph traversal.
+- Select on validation or development data; use sealed tests once.
+- Record failed runs, protocol revisions, and negative results.
+- Keep user data local and preserve it through schema upgrades.
 
 ## License
 
-No open-source license has been declared yet. Source availability does not grant permission to redistribute or reuse the code. A license must be selected before a formal public research release.
+No open-source license has been declared yet. Source availability does not grant
+permission to redistribute or reuse the code. A license must be selected before
+a formal public research release.
