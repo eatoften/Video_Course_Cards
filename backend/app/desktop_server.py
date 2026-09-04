@@ -14,7 +14,7 @@ import uvicorn
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8001
 HEALTH_PATH = "/health"
-LOGGER_NAME = "video_course_cards.desktop"
+LOGGER_NAME = "citefold.desktop"
 
 
 @dataclass(frozen=True)
@@ -31,8 +31,13 @@ class ServerConfig:
         return f"http://{self.host}:{self.port}"
 
 
+def _env_value(name: str, default: str | None = None) -> str | None:
+    legacy_name = name.replace("CITEFOLD_", "VCC_", 1)
+    return os.environ.get(name) or os.environ.get(legacy_name) or default
+
+
 def _env_bool(name: str, default: bool) -> bool:
-    raw_value = os.environ.get(name)
+    raw_value = _env_value(name)
 
     if raw_value is None:
         return default
@@ -50,23 +55,23 @@ def _env_bool(name: str, default: bool) -> bool:
 
 def parse_args(argv: list[str] | None = None) -> ServerConfig:
     parser = argparse.ArgumentParser(
-        description="Run the Video Course Cards local FastAPI backend.",
+        description="Run the Citefold local FastAPI backend.",
     )
     parser.add_argument(
         "--host",
-        default=os.environ.get("VCC_BACKEND_HOST", DEFAULT_HOST),
+        default=_env_value("CITEFOLD_BACKEND_HOST", DEFAULT_HOST),
         help="Host address for the local backend.",
     )
     parser.add_argument(
         "--port",
         type=int,
-        default=int(os.environ.get("VCC_BACKEND_PORT", DEFAULT_PORT)),
+        default=int(_env_value("CITEFOLD_BACKEND_PORT", str(DEFAULT_PORT))),
         help="Port for the local backend.",
     )
     parser.add_argument(
         "--reload",
         action="store_true",
-        default=_env_bool("VCC_BACKEND_RELOAD", False),
+        default=_env_bool("CITEFOLD_BACKEND_RELOAD", False),
         help="Enable uvicorn reload mode. Use only during development.",
     )
     parser.add_argument(
@@ -77,12 +82,12 @@ def parse_args(argv: list[str] | None = None) -> ServerConfig:
     parser.add_argument(
         "--desktop",
         action="store_true",
-        default=_env_bool("VCC_DESKTOP", False),
+        default=_env_bool("CITEFOLD_DESKTOP", False),
         help="Run with desktop-app defaults.",
     )
     parser.add_argument(
         "--log-file",
-        default=os.environ.get("VCC_BACKEND_LOG_FILE"),
+        default=_env_value("CITEFOLD_BACKEND_LOG_FILE"),
         help="Optional backend log file path.",
     )
 
@@ -165,14 +170,14 @@ def main(argv: list[str] | None = None) -> int:
     if config.reuse_existing and is_backend_ready(config.base_url):
         logger.info("reusing existing backend at %s", config.base_url)
         print(
-            f"Video Course Cards backend already running at {config.base_url}.",
+            f"Citefold backend already running at {config.base_url}.",
             flush=True,
         )
         return 0
 
     logger.info("starting uvicorn backend at %s", config.base_url)
     print(
-        f"Starting Video Course Cards backend at {config.base_url}.",
+        f"Starting Citefold backend at {config.base_url}.",
         flush=True,
     )
 

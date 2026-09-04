@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from io import BytesIO
 import json
-import os
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -22,12 +21,7 @@ from .markdown_export import (
 from .settings import get_app_path_settings
 
 
-DEFAULT_EXPORT_DIR = Path(
-    os.environ.get(
-        "VCC_EXPORT_DIR",
-        str(get_app_path_settings().export_dir),
-    )
-)
+DEFAULT_EXPORT_DIR = Path(get_app_path_settings().export_dir)
 JOB_FOLDER_MANIFEST = ".vcc-job-export-manifest.json"
 VAULT_FOLDER_MANIFEST = ".vcc-vault-export-manifest.json"
 
@@ -100,11 +94,11 @@ def export_all_cards_markdown() -> MarkdownArchive:
     entries = _vault_archive_entries(records)
 
     return MarkdownArchive(
-        filename="video-course-cards-vault.zip",
+        filename="citefold-vault.zip",
         content=_build_zip(
             entries=entries,
             readme=_build_readme(
-                title="Video Course Cards Vault",
+                title="Citefold Vault",
                 description=(
                     "Obsidian-friendly Markdown vault exported from saved "
                     "knowledge cards."
@@ -384,7 +378,7 @@ def _write_manifest(manifest_path: Path, files: list[str]) -> None:
     manifest_path.write_text(
         json.dumps(
             {
-                "source": "video-course-cards",
+                "source": "citefold",
                 "mode": "sqlite-snapshot",
                 "files": files,
             },

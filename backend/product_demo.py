@@ -129,14 +129,14 @@ def _prepare_workspace(workspace: Path) -> dict[str, str]:
         resolved.mkdir(parents=True)
 
     values = {
-        "VCC_DATA_DIR": str(resolved),
-        "VCC_DB_PATH": str(resolved / "data" / "jobs.db"),
-        "VCC_UPLOAD_DIR": str(resolved / "uploads"),
-        "VCC_TRANSCRIPT_DIR": str(resolved / "transcripts"),
-        "VCC_EXPORT_DIR": str(resolved / "exports"),
-        "VCC_LOG_DIR": str(resolved / "logs"),
-        "VCC_SOURCE_DIR": str(resolved / "sources"),
-        "VCC_DESKTOP": "0",
+        "CITEFOLD_DATA_DIR": str(resolved),
+        "CITEFOLD_DB_PATH": str(resolved / "data" / "jobs.db"),
+        "CITEFOLD_UPLOAD_DIR": str(resolved / "uploads"),
+        "CITEFOLD_TRANSCRIPT_DIR": str(resolved / "transcripts"),
+        "CITEFOLD_EXPORT_DIR": str(resolved / "exports"),
+        "CITEFOLD_LOG_DIR": str(resolved / "logs"),
+        "CITEFOLD_SOURCE_DIR": str(resolved / "sources"),
+        "CITEFOLD_DESKTOP": "0",
     }
     os.environ.update(values)
     return values

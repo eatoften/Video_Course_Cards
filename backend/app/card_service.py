@@ -363,7 +363,7 @@ def _call_llm(
     if not output.strip():
         raise CardGenerationError(
             "Local LLM returned empty content. Try again, select a "
-            "shorter transcript window, or increase VCC_LLM_MAX_TOKENS."
+            "shorter transcript window, or increase CITEFOLD_LLM_MAX_TOKENS."
         )
 
     return output

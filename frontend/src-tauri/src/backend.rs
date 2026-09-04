@@ -16,14 +16,16 @@ use uuid::Uuid;
 
 const BACKEND_HOST: &str = "127.0.0.1";
 const BACKEND_PORT: u16 = 8001;
-const SIDECAR_NAME: &str = "video-course-cards-backend";
+const SIDECAR_NAME: &str = "citefold-backend";
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(1);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(45);
 const POLL_INTERVAL: Duration = Duration::from_millis(300);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+// This is an internal compatibility path, not the displayed product name.
+// Changing it would make existing desktop-preview workspaces appear missing.
 const APP_DATA_DIR_NAME: &str = "Video Course Cards";
-const APPLICATION_ID: &str = "video-course-cards";
-const INSTANCE_TOKEN_HEADER: &str = "X-VCC-Instance-Token";
+const APPLICATION_ID: &str = "citefold";
+const INSTANCE_TOKEN_HEADER: &str = "X-Citefold-Instance-Token";
 
 struct OwnedBackend<C = CommandChild> {
     child: Option<C>,
@@ -225,10 +227,10 @@ fn start_sidecar(app: &AppHandle, state: &BackendState) -> Result<(), String> {
         .shell()
         .sidecar(SIDECAR_NAME)
         .map_err(|error| format!("Failed to prepare backend sidecar: {error}"))?
-        .env("VCC_DESKTOP", "1")
-        .env("VCC_DATA_DIR", &data_dir)
-        .env("VCC_BACKEND_LOG_FILE", &log_file)
-        .env("VCC_BACKEND_INSTANCE_TOKEN", &instance_token)
+        .env("CITEFOLD_DESKTOP", "1")
+        .env("CITEFOLD_DATA_DIR", &data_dir)
+        .env("CITEFOLD_BACKEND_LOG_FILE", &log_file)
+        .env("CITEFOLD_BACKEND_INSTANCE_TOKEN", &instance_token)
         .args([
             "--host",
             BACKEND_HOST,
@@ -472,7 +474,7 @@ fn is_backend_port_reachable() -> bool {
 
 fn unrelated_port_message() -> String {
     format!(
-        "Port {BACKEND_PORT} is in use by another service. Video Course Cards will not stop or replace an unowned process."
+        "Port {BACKEND_PORT} is in use by another service. Citefold will not stop or replace an unowned process."
     )
 }
 
@@ -587,10 +589,10 @@ mod tests {
     use super::{has_expected_health_identity, terminate_owned_process, OwnedBackend};
 
     #[test]
-    fn accepts_the_video_course_cards_health_contract() {
+    fn accepts_the_citefold_health_contract() {
         let response = concat!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n",
-            "{\"status\":\"ok\",\"application_id\":\"video-course-cards\",",
+            "{\"status\":\"ok\",\"application_id\":\"citefold\",",
             "\"api_version\":1,\"instance_token\":null}"
         );
 
@@ -601,7 +603,7 @@ mod tests {
     fn requires_the_exact_owned_instance_token() {
         let response = concat!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n",
-            "{\"status\":\"ok\",\"application_id\":\"video-course-cards\",",
+            "{\"status\":\"ok\",\"application_id\":\"citefold\",",
             "\"api_version\":1,\"instance_token\":\"owned-token\"}"
         );
 
@@ -623,7 +625,7 @@ mod tests {
     fn rejects_identity_text_outside_the_json_contract() {
         let response = concat!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n",
-            "application_id=video-course-cards"
+            "application_id=citefold"
         );
 
         assert!(!has_expected_health_identity(response, None));

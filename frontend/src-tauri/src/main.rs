@@ -1,3 +1,3 @@
 fn main() {
-    video_course_cards_lib::run()
+    citefold_desktop_lib::run()
 }

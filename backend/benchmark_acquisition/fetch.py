@@ -254,7 +254,7 @@ def acquire_asset(
         headers={
             "Accept": "application/pdf, application/octet-stream;q=0.8",
             "Accept-Encoding": "identity",
-            "User-Agent": "Video-Course-Cards-benchmark-acquisition/1",
+            "User-Agent": "Citefold-benchmark-acquisition/1",
         },
         method="GET",
     )

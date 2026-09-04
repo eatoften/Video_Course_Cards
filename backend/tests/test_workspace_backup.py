@@ -348,7 +348,7 @@ def test_create_validate_and_list_workspace_backup(tmp_path: Path) -> None:
     )
     assert validated.archive_sha256 == created.archive_sha256
     assert validated.manifest["app"] == {
-        "name": "Video Course Cards",
+        "name": "Citefold",
         "version": "0.1.1",
     }
     assert validated.manifest["counts"]["by_kind"] == {
@@ -374,6 +374,42 @@ def test_create_validate_and_list_workspace_backup(tmp_path: Path) -> None:
     renamed_backup = created.path.with_name("renamed.vcc-backup")
     os.replace(created.path, renamed_backup)
     os.replace(renamed_backup, created.path)
+
+
+def test_validate_and_list_accept_legacy_app_name(tmp_path: Path) -> None:
+    data_dir, db_path = _workspace(tmp_path, label="legacy-app-name")
+    created = create_workspace_backup(
+        db_path=db_path,
+        data_dir=data_dir,
+        current_schema_version=SCHEMA_VERSION,
+        now=FIXED_TIME,
+    )
+    contents = _read_zip(created.path)
+    manifest = json.loads(contents[workspace_backup.MANIFEST_PATH])
+    manifest["app"]["name"] = "Video Course Cards"
+    contents[workspace_backup.MANIFEST_PATH] = json.dumps(
+        manifest,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    _rewrite_zip(created.path, contents)
+    assert json.loads(
+        _read_zip(created.path)[workspace_backup.MANIFEST_PATH]
+    )["app"]["name"] == "Video Course Cards"
+
+    validated = validate_workspace_backup(
+        created.path,
+        current_schema_version=SCHEMA_VERSION,
+    )
+    assert validated.manifest["app"]["name"] == "Citefold"
+
+    summaries = list_workspace_backups(
+        data_dir=data_dir,
+        current_schema_version=SCHEMA_VERSION,
+    )
+    assert len(summaries) == 1
+    assert summaries[0].valid is True
 
 
 @pytest.mark.parametrize(
@@ -1203,7 +1239,7 @@ def test_queue_and_restart_apply_restore_with_path_rebasing(
         current_schema_version=SCHEMA_VERSION,
     )
     assert pre_restore.backup_kind == "pre_restore"
-    assert pre_restore.path.name.startswith("vcc-pre-restore-")
+    assert pre_restore.path.name.startswith("citefold-pre-restore-")
     pre_restore_db = _database_from_backup(
         pre_restore.path,
         tmp_path / "pre-restore.db",

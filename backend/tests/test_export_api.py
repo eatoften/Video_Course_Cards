@@ -170,7 +170,7 @@ def test_export_all_cards_uses_obsidian_friendly_layout(tmp_path):
 
     assert response.status_code == 200
     assert response.headers["content-disposition"] == (
-        'attachment; filename="video-course-cards-vault.zip"'
+        'attachment; filename="citefold-vault.zip"'
     )
 
     with open_zip(response) as archive:
@@ -238,9 +238,9 @@ def test_save_all_cards_export_to_local_directory(monkeypatch, tmp_path):
     assert response.status_code == 200
 
     data = response.json()
-    saved_path = export_dir / "video-course-cards-vault.zip"
+    saved_path = export_dir / "citefold-vault.zip"
 
-    assert data["filename"] == "video-course-cards-vault.zip"
+    assert data["filename"] == "citefold-vault.zip"
     assert data["path"] == str(saved_path)
     assert data["byte_count"] == saved_path.stat().st_size
     assert saved_path.is_file()

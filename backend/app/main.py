@@ -1427,13 +1427,14 @@ def get_reliable_task_manager() -> ReliableTaskManager:
 
 @app.get("/health")
 def health_check():
+    instance_token = os.environ.get(
+        "CITEFOLD_BACKEND_INSTANCE_TOKEN"
+    ) or os.environ.get("VCC_BACKEND_INSTANCE_TOKEN")
     return {
         "status": "ok",
-        "application_id": "video-course-cards",
+        "application_id": "citefold",
         "api_version": 1,
-        "instance_token": os.environ.get(
-            "VCC_BACKEND_INSTANCE_TOKEN"
-        ),
+        "instance_token": instance_token,
     }
 
 
@@ -1597,7 +1598,7 @@ def import_workspace_backup(
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=(
-                "Choose a Video Course Cards .vcc-backup archive."
+                "Choose a Citefold backup (.vcc-backup)."
             ),
         )
 
@@ -1828,13 +1829,11 @@ def quiesce_runtime(
     """Stop accepting task work before the desktop owner restarts/exits."""
 
     instance_token = os.environ.get(
-        "VCC_BACKEND_INSTANCE_TOKEN",
-        "",
-    )
+        "CITEFOLD_BACKEND_INSTANCE_TOKEN"
+    ) or os.environ.get("VCC_BACKEND_INSTANCE_TOKEN", "")
     presented_token = request.headers.get(
-        "X-VCC-Instance-Token",
-        "",
-    )
+        "X-Citefold-Instance-Token"
+    ) or request.headers.get("X-VCC-Instance-Token", "")
     if instance_token and not secrets.compare_digest(
         presented_token,
         instance_token,

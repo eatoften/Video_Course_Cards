@@ -160,7 +160,7 @@ function installBackendMock(
           return Promise.resolve(
             jsonResponse({
               status: 'ok',
-              application_id: 'video-course-cards',
+              application_id: 'citefold',
               api_version: 1,
               instance_token: null,
             }),
@@ -378,7 +378,7 @@ describe('App source-first shell', () => {
       ready: true,
       mode: 'sidecar',
       message: 'Backend ready.',
-      application_id: 'video-course-cards',
+      application_id: 'citefold',
       api_version: 1,
       identity_verified: true,
     })

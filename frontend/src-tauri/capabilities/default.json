@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default permissions for the Video Course Cards desktop window.",
+  "description": "Default permissions for the Citefold desktop preview window.",
   "windows": ["main"],
   "permissions": ["core:default"]
 }

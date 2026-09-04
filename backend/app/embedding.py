@@ -161,8 +161,8 @@ def resolve_sentence_transformer_model_source(
     if local_files_only:
         raise EmbeddingError(
             "Local SentenceTransformer model was not found. "
-            "Set VCC_EMBEDDING_MODEL_PATH to a complete local model "
-            "snapshot, or set VCC_EMBEDDING_LOCAL_FILES_ONLY=false to allow "
+            "Set CITEFOLD_EMBEDDING_MODEL_PATH to a complete local model "
+            "snapshot, or set CITEFOLD_EMBEDDING_LOCAL_FILES_ONLY=false to allow "
             "downloads."
         )
 

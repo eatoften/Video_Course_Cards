@@ -1,12 +1,12 @@
 [package]
-name = "video-course-cards"
+name = "citefold-desktop"
 version = "0.1.1"
-description = "Local-first AI learning cards for course videos"
-authors = ["Video Course Cards"]
+description = "Local-first evidence-grounded learning workspace"
+authors = ["Citefold contributors"]
 edition = "2021"
 
 [lib]
-name = "video_course_cards_lib"
+name = "citefold_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -9,7 +9,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Resolve-Path (Join-Path $ScriptDir "..")
 $BackendDir = Join-Path $RepoRoot "backend"
 $BinariesDir = Join-Path $RepoRoot "frontend\src-tauri\binaries"
-$BackendName = "video-course-cards-backend"
+$BackendName = "citefold-backend"
 $SidecarName = "$BackendName-$TargetTriple.exe"
 
 New-Item -ItemType Directory -Force -Path $BinariesDir | Out-Null

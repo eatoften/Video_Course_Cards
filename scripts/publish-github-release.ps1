@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Tag,
-    [string]$Title = "Video Course Cards $Tag",
+    [string]$Title = "Citefold $Tag",
     [string]$Notes = "Local-first desktop demo release.",
     [string]$ArtifactGlob = "frontend\src-tauri\target\release\bundle\**\*.exe"
 )

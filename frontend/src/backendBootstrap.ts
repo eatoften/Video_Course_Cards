@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 
-const BACKEND_APPLICATION_ID = 'video-course-cards'
+const BACKEND_APPLICATION_ID = 'citefold'
 const BACKEND_API_VERSION = 1
 const BACKEND_HEALTH_TIMEOUT_MS = 1000
 const BACKEND_STARTUP_TIMEOUT_MS = 45000

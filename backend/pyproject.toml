@@ -1,7 +1,7 @@
 [project]
-name = "backend"
+name = "citefold-backend"
 version = "0.1.0"
-description = "Add your description here"
+description = "Local-first evidence-grounded learning workspace backend"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

@@ -1,5 +1,7 @@
 param(
-    [ValidateSet("nsis", "msi")]
+    # Only NSIS is exercised by the preview workflow. Re-enabling MSI after
+    # the product rename requires preserving its historical upgradeCode.
+    [ValidateSet("nsis")]
     [string]$Bundle = "nsis",
     [switch]$SkipBackendBuild,
     [switch]$SkipSmokeTest
@@ -11,7 +13,7 @@ Set-StrictMode -Version Latest
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Resolve-Path (Join-Path $ScriptDir "..")
 $FrontendDir = Join-Path $RepoRoot "frontend"
-$SidecarExe = Join-Path $FrontendDir "src-tauri\binaries\video-course-cards-backend-x86_64-pc-windows-msvc.exe"
+$SidecarExe = Join-Path $FrontendDir "src-tauri\binaries\citefold-backend-x86_64-pc-windows-msvc.exe"
 $CargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
 
 if ((Test-Path -LiteralPath $CargoBin) -and $env:Path -notlike "*$CargoBin*") {

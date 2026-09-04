@@ -125,7 +125,7 @@ def _check_embedding_model() -> RuntimeDependencyStatus:
             detail=str(exc),
             install_hint=(
                 "Download a complete SentenceTransformer snapshot or set "
-                "VCC_EMBEDDING_LOCAL_FILES_ONLY=false for development."
+                "CITEFOLD_EMBEDDING_LOCAL_FILES_ONLY=false for development."
             ),
             required_for=["semantic chunking", "card retrieval", "RAG"],
         )

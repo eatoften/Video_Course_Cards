@@ -3593,7 +3593,7 @@ function App() {
           : `Studio · ${appRoute.tool ?? 'cards'}`
     document.title = selectedCourse
       ? `${viewLabel} · ${selectedCourse.title}`
-      : `${viewLabel} · Video Course Cards`
+      : `${viewLabel} · Citefold`
   }, [appRoute.tool, appRoute.view, selectedCourse])
 
   useEffect(() => {
@@ -4000,7 +4000,7 @@ function App() {
       <main className="app-shell backend-startup">
         <section className="backend-startup-panel">
           <div>
-            <p className="subtle">Video Course Cards</p>
+            <p className="subtle">Citefold</p>
             <h1>
               {backendBoot.phase === 'failed'
                 ? 'Local backend unavailable'

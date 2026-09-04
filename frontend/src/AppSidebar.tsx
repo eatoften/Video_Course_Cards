@@ -49,10 +49,10 @@ export function AppSidebar({
     <nav className="app-sidebar" aria-label="Primary navigation">
       <div
         className="app-sidebar-brand"
-        aria-label="Video Course Cards"
-        title="Video Course Cards"
+        aria-label="Citefold"
+        title="Citefold"
       >
-        VC
+        CF
       </div>
       <div className="app-sidebar-nav">
         {NAV_ITEMS.map((item) => {

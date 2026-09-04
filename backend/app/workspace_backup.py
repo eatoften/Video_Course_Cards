@@ -37,7 +37,8 @@ from .trash import (
 BACKUP_FORMAT = "video-course-cards-workspace-backup"
 BACKUP_FORMAT_VERSION = 1
 BACKUP_EXTENSION = ".vcc-backup"
-APP_NAME = "Video Course Cards"
+APP_NAME = "Citefold"
+SUPPORTED_APP_NAMES = frozenset({APP_NAME, "Video Course Cards"})
 APP_VERSION = "0.1.1"
 MANIFEST_PATH = "manifest.json"
 DATABASE_ARCHIVE_PATH = "workspace/database.sqlite3"
@@ -218,7 +219,7 @@ def create_workspace_backup(
     stamp = _filename_stamp(now)
     filename_kind = "workspace" if backup_kind == "manual" else "pre-restore"
     final_path = destination_dir / (
-        f"vcc-{filename_kind}-{stamp}-{uuid4().hex[:8]}{BACKUP_EXTENSION}"
+        f"citefold-{filename_kind}-{stamp}-{uuid4().hex[:8]}{BACKUP_EXTENSION}"
     )
     temporary_archive = destination_dir / f".{final_path.name}.tmp"
 
@@ -1731,7 +1732,7 @@ def _validate_manifest(
     app = manifest.get("app")
     if (
         not isinstance(app, dict)
-        or app.get("name") != APP_NAME
+        or app.get("name") not in SUPPORTED_APP_NAMES
         or not isinstance(app.get("version"), str)
         or not app["version"].strip()
     ):

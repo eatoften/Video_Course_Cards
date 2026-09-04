@@ -7,6 +7,9 @@ from pydantic import BaseModel, Field
 
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
+CITEFOLD_ENV_PREFIX = "CITEFOLD_"
+LEGACY_ENV_PREFIX = "VCC_"
+LEGACY_DESKTOP_DATA_DIR_NAME = "Video Course Cards"
 
 
 class LLMSettings(BaseModel):
@@ -62,7 +65,22 @@ def _env(
     default: str,
     env_file_values: dict[str, str],
 ) -> str:
-    return os.environ.get(name) or env_file_values.get(name, default)
+    aliases = (name,)
+    if name.startswith(CITEFOLD_ENV_PREFIX):
+        aliases = (
+            name,
+            f"{LEGACY_ENV_PREFIX}{name.removeprefix(CITEFOLD_ENV_PREFIX)}",
+        )
+
+    for alias in aliases:
+        value = os.environ.get(alias)
+        if value:
+            return value
+    for alias in aliases:
+        value = env_file_values.get(alias)
+        if value:
+            return value
+    return default
 
 
 def _env_float(
@@ -108,16 +126,18 @@ def _env_bool(
 
 
 def _default_data_dir(env_file_values: dict[str, str]) -> Path:
-    configured_data_dir = _env("VCC_DATA_DIR", "", env_file_values).strip()
+    configured_data_dir = _env("CITEFOLD_DATA_DIR", "", env_file_values).strip()
 
     if configured_data_dir:
         return Path(configured_data_dir)
 
-    if _env_bool("VCC_DESKTOP", False, env_file_values):
+    if _env_bool("CITEFOLD_DESKTOP", False, env_file_values):
         local_app_data = os.environ.get("LOCALAPPDATA")
 
         if local_app_data:
-            return Path(local_app_data) / "Video Course Cards"
+            # Keep the original on-disk location so a renamed desktop preview
+            # cannot make an existing workspace appear to disappear.
+            return Path(local_app_data) / LEGACY_DESKTOP_DATA_DIR_NAME
 
     return BACKEND_DIR / "data"
 
@@ -126,13 +146,13 @@ def _default_db_path(
     data_dir: Path,
     env_file_values: dict[str, str],
 ) -> Path:
-    configured_db_path = _env("VCC_DB_PATH", "", env_file_values).strip()
+    configured_db_path = _env("CITEFOLD_DB_PATH", "", env_file_values).strip()
 
     if configured_db_path:
         return Path(configured_db_path)
 
-    if _env("VCC_DATA_DIR", "", env_file_values).strip() or _env_bool(
-        "VCC_DESKTOP",
+    if _env("CITEFOLD_DATA_DIR", "", env_file_values).strip() or _env_bool(
+        "CITEFOLD_DESKTOP",
         False,
         env_file_values,
     ):
@@ -148,35 +168,35 @@ def get_app_path_settings() -> AppPathSettings:
     db_path = _default_db_path(data_dir, env_file_values)
     upload_dir = Path(
         _env(
-            "VCC_UPLOAD_DIR",
+            "CITEFOLD_UPLOAD_DIR",
             str(data_dir / "uploads"),
             env_file_values,
         )
     )
     transcript_dir = Path(
         _env(
-            "VCC_TRANSCRIPT_DIR",
+            "CITEFOLD_TRANSCRIPT_DIR",
             str(data_dir / "transcripts"),
             env_file_values,
         )
     )
     export_dir = Path(
         _env(
-            "VCC_EXPORT_DIR",
+            "CITEFOLD_EXPORT_DIR",
             str(data_dir / "exports"),
             env_file_values,
         )
     )
     log_dir = Path(
         _env(
-            "VCC_LOG_DIR",
+            "CITEFOLD_LOG_DIR",
             str(data_dir / "logs"),
             env_file_values,
         )
     )
     source_dir = Path(
         _env(
-            "VCC_SOURCE_DIR",
+            "CITEFOLD_SOURCE_DIR",
             str(data_dir / "sources"),
             env_file_values,
         )
@@ -197,7 +217,7 @@ def _llm_reasoning_effort(
     env_file_values: dict[str, str],
 ) -> Literal["none", "low", "medium", "high"] | None:
     value = _env(
-        "VCC_LLM_REASONING_EFFORT",
+        "CITEFOLD_LLM_REASONING_EFFORT",
         "none",
         env_file_values,
     ).strip().lower()
@@ -213,26 +233,26 @@ def get_llm_settings() -> LLMSettings:
     env_file_values = _read_env_file()
 
     return LLMSettings(
-        provider=_env("VCC_LLM_PROVIDER", "ollama", env_file_values),
+        provider=_env("CITEFOLD_LLM_PROVIDER", "ollama", env_file_values),
         base_url=_env(
-            "VCC_LLM_BASE_URL",
+            "CITEFOLD_LLM_BASE_URL",
             "http://localhost:11434/v1",
             env_file_values,
         ),
-        model=_env("VCC_LLM_MODEL", "qwen3:4b", env_file_values),
-        api_key=_env("VCC_LLM_API_KEY", "local", env_file_values),
+        model=_env("CITEFOLD_LLM_MODEL", "qwen3:4b", env_file_values),
+        api_key=_env("CITEFOLD_LLM_API_KEY", "local", env_file_values),
         temperature=_env_float(
-            "VCC_LLM_TEMPERATURE",
+            "CITEFOLD_LLM_TEMPERATURE",
             0.0,
             env_file_values,
         ),
         max_tokens=_env_int(
-            "VCC_LLM_MAX_TOKENS",
+            "CITEFOLD_LLM_MAX_TOKENS",
             8192,
             env_file_values,
         ),
         timeout_seconds=_env_float(
-            "VCC_LLM_TIMEOUT_SECONDS",
+            "CITEFOLD_LLM_TIMEOUT_SECONDS",
             120.0,
             env_file_values,
         ),
@@ -243,22 +263,26 @@ def get_llm_settings() -> LLMSettings:
 @cache
 def get_embedding_settings() -> EmbeddingSettings:
     env_file_values = _read_env_file()
-    model_path = _env("VCC_EMBEDDING_MODEL_PATH", "", env_file_values).strip()
+    model_path = _env(
+        "CITEFOLD_EMBEDDING_MODEL_PATH",
+        "",
+        env_file_values,
+    ).strip()
 
     return EmbeddingSettings(
         model=_env(
-            "VCC_EMBEDDING_MODEL",
+            "CITEFOLD_EMBEDDING_MODEL",
             "sentence-transformers/all-MiniLM-L6-v2",
             env_file_values,
         ),
         model_path=model_path or None,
         batch_size=_env_int(
-            "VCC_EMBEDDING_BATCH_SIZE",
+            "CITEFOLD_EMBEDDING_BATCH_SIZE",
             32,
             env_file_values,
         ),
         local_files_only=_env_bool(
-            "VCC_EMBEDDING_LOCAL_FILES_ONLY",
+            "CITEFOLD_EMBEDDING_LOCAL_FILES_ONLY",
             True,
             env_file_values,
         ),

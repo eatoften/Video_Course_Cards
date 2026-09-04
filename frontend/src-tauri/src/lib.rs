@@ -12,5 +12,5 @@ pub fn run() {
             backend::stop_backend
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Video Course Cards");
+        .expect("error while running Citefold");
 }
