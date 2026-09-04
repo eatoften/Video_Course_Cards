@@ -110,7 +110,7 @@ def _allow_explicit_non_git_synthetic_revision(
     )
 
 
-def test_cs336_lecture_3_source_slice_is_bound_and_frozen() -> None:
+def test_cs336_lecture_3_source_slice_is_historically_bound_and_frozen() -> None:
     protocol = load_protocol(CS336_DRAFT)
     authority = load_manifest_authority(CS336_MANIFEST)
 
@@ -146,17 +146,7 @@ def test_cs336_lecture_3_source_slice_is_bound_and_frozen() -> None:
         == 50
     )
 
-    validate_protocol_for_freeze(
-        protocol,
-        authority,
-        repository_root=REPOSITORY_ROOT,
-    )
     historical = load_historical_frozen_protocol(
-        CS336_FROZEN,
-        authority,
-        repository_root=REPOSITORY_ROOT,
-    )
-    strict = load_frozen_protocol(
         CS336_FROZEN,
         authority,
         repository_root=REPOSITORY_ROOT,
@@ -164,16 +154,27 @@ def test_cs336_lecture_3_source_slice_is_bound_and_frozen() -> None:
     assert historical.protocol_sha256 == (
         "e09c91283a44e9cf2ebb6094a6ecbc6dec85d5f32c4dc82c1a5c65135838174f"
     )
-    assert strict == historical
+    assert historical.protocol == protocol.model_copy(
+        update={"protocol_status": "frozen"}
+    )
+
+    # The product-core cleanup intentionally changed the live lockfile after
+    # this receipt was published. Historical validation must keep succeeding
+    # without pretending that the current checkout is an exact replay
+    # environment; a future replay requires a newly derived protocol.
+    assert hashlib.sha256(
+        (REPOSITORY_ROOT / protocol.projection.uv_lock_path).read_bytes()
+    ).hexdigest() != protocol.projection.uv_lock_sha256
+    with pytest.raises(GoldenGraphProtocolError, match="uv.lock SHA-256 mismatch"):
+        load_frozen_protocol(
+            CS336_FROZEN,
+            authority,
+            repository_root=REPOSITORY_ROOT,
+        )
 
     # A serialized status label cannot bypass the authority service.
     bare_frozen = protocol.model_copy(update={"protocol_status": "frozen"})
     assert not isinstance(bare_frozen, FrozenProtocolAuthority)
-    validate_protocol_for_freeze(
-        bare_frozen,
-        authority,
-        repository_root=REPOSITORY_ROOT,
-    )
 
 
 def test_protocol_envelopes_require_explicit_fixed_and_nullable_keys(
