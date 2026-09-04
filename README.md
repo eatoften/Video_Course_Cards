@@ -1,103 +1,102 @@
-<h1 align="center">Citefold</h1>
+# Citefold
 
-Citefold is a local-first workspace for studying course videos and documents.
-It normalizes source material into one evidence model, supports multi-turn Chat
-with sentence-level citations, and provides Notes and a versioned Concept Graph.
+[![Change-level CI](https://github.com/eatoften/Citefold/actions/workflows/ci.yml/badge.svg)](https://github.com/eatoften/Citefold/actions/workflows/ci.yml)
 
-> **Status:** The core local workflow is implemented, but the project is not
-> release-complete. Some package and UI identifiers still use the legacy
-> **Video Course Cards** name. The current supported entry point is the browser
-> frontend with a local backend; there is no supported desktop installer.
+Citefold is a local-first learning workspace that turns course sources into
+answers with citations you can reopen. The current MVP is deliberately narrow:
 
-## Core data model
-
-- A video, PDF, slide deck, document, or published Note is a `CourseSource`.
-- A `CourseSourceChunk` with a typed `Locator` is the canonical evidence unit.
-- Cards, Concepts, Relations, summaries, and graph paths are derived data.
-- Chat citations are server-owned snapshots that resolve to a video timestamp,
-  PDF page, slide, or document paragraph.
-
-## Product loop
-
-1. Import local videos, audio, PDFs, PPTX, DOCX, or text into **Sources**.
-2. Ask multi-turn questions in **Chat** and inspect sentence-level citations.
-3. Save useful answers as editable **Notes**; publish an exact Note revision as
-   a new Source when it should participate in retrieval.
-4. Use **Studio** to study Cards, review with FSRS, and inspect published
-   Concept paths with evidence on every node and edge.
-
-## What works today
-
-| Area | Implemented | Current boundary |
-| --- | --- | --- |
-| Sources | One `CourseSource` / `CourseSourceChunk` / typed `Locator` model for video transcripts, audio, PDF pages, PPT slides, DOCX paragraphs, text, and published Notes | Automatic Understanding is not yet one uniform source-to-Card pipeline for every modality |
-| Grounded Chat | Source-scoped conversations, bounded multi-turn history, MiniLM retrieval, Ollama-compatible generation, strict structured output, refusal, and durable sentence citations | Local `qwen3:4b` has not yet passed a model-quality or strict-output reliability gate |
-| Graph-guided Chat | An explicit two-Concept question may attach the exact path from the active published GraphVersion; the route is persisted and shown with support basis and traversal direction | Exact name/alias matching only; the graph cannot add evidence or replace Source retrieval |
-| Notes | Free notes, save-answer-to-note with immutable citation provenance, revision-safe editing, and explicit Note-to-Source publication | Local single-user workflow; no collaboration or cloud sync |
-| Studio | Timestamped Cards, Study documents, FSRS Review, Course Map, Concept Graph Overview/Local/Trace/Learning views, evidence inspection, Draft Review, and compare-and-swap graph publication | No automatic Source-to-Concept promotion, human-reviewed gold graph, or Obsidian-scale overview yet |
-| Reliability | Persisted task progress, cancel/retry/restart recovery, autosaved drafts, conflict states, Trash/Undo, and validated workspace backup/restore | Durable browser E2E, full accessibility acceptance, and release acceptance remain open |
-
-## Architecture
-
-```mermaid
-flowchart LR
-    A["Video / Audio / PDF / PPTX / DOCX / Text / Note"]
-    B["Modality adapters<br/>ASR / page / slide / paragraph"]
-    C["CourseSourceChunk<br/>text + hash + typed Locator"]
-
-    D["MiniLM retrieval"]
-    E["Grounded Chat"]
-    F["Sentence citation snapshot"]
-    G["Original Source location"]
-
-    H["Understanding<br/>(partially unified)"]
-    I["Evidence-bound Card draft"]
-    J["Review and promotion"]
-    K["Immutable Concept GraphVersion"]
-    L["BFS Trace / Kahn Learning Path"]
-
-    M["Editable Note"]
-
-    A --> B --> C
-    C --> D --> E --> F --> G
-    C --> H --> I --> J --> K --> L
-    L -. "navigation context only" .-> E
-    E --> M
-    M -. "publish exact revision" .-> C
+```text
+PDF import -> persisted ingestion -> retrieval -> grounded answer
+           -> exact page citation -> save Note -> restart and reopen
 ```
 
-Two boundaries are intentional:
+The supported entry point is the React browser app with a local FastAPI
+backend. There is no supported desktop installer or hosted multi-user service.
 
-- MiniLM selects canonical Source Chunks; the cited Chunks and immutable
-  citation snapshots—not retrieval scores or graph edges—are the factual
-  authority.
-- The Concept Graph is a versioned navigation layer. It can organize a response
-  or learning path, but it cannot become a citation.
+## Why this is more than a chat wrapper
 
-SQLite is used as the local source of truth. Immutable revisions, hashes,
-transactions, compare-and-swap publication, and deterministic adjacency
-queries provide the required guarantees without adding a graph database or
-distributed infrastructure before measurements justify them.
+- Extracted, non-empty units from PDFs, video/audio transcripts, slides,
+  documents, text, and published Notes converge on one `CourseSourceChunk`
+  model with a typed `Locator`.
+- The model may select only server-issued evidence IDs. The backend validates
+  those IDs and stores immutable citation snapshots rather than trusting model
+  prose as provenance.
+- SQLite-backed tasks support idempotency, progress, cancellation, retry, and
+  restart recovery.
+- Retrieval experiments compare BM25, dense MiniLM, RRF, and graph expansion
+  with frozen inputs and report both improvements and negative results.
 
-## Public-course acceptance
+## Run the MVP locally
 
-The latest product slice was exercised with the official Stanford CS336 Spring
-2025 Lecture 3 slides, pinned to upstream commit
+### Requirements
+
+- Python 3.11 and [uv](https://docs.astral.sh/uv/)
+- Node.js 22 and npm
+- [Ollama](https://ollama.com/) with `qwen3:4b` for live generated answers
+- Internet access once to download the default MiniLM embedding model, or a
+  complete local SentenceTransformer snapshot
+
+FFmpeg is required only for video or audio ingestion, not for the PDF MVP.
+
+### 1. Start the backend
+
+```powershell
+cd backend
+uv sync --frozen
+ollama pull qwen3:4b
+$env:CITEFOLD_EMBEDDING_LOCAL_FILES_ONLY='false'
+uv run --frozen python -B -m uvicorn app.main:app `
+  --host 127.0.0.1 --port 8001 --reload
+```
+
+After the first embedding-model download, either omit that environment variable
+and use the local cache or set `CITEFOLD_EMBEDDING_MODEL_PATH` to a verified
+local snapshot.
+
+### 2. Start the frontend
+
+```powershell
+cd frontend
+npm.cmd ci
+npm.cmd run dev
+```
+
+Open `http://127.0.0.1:5174`. The FastAPI schema is available at
+`http://127.0.0.1:8001/docs`.
+
+### 3. Exercise the golden journey
+
+1. Create a course in **Sources** and import a text-based PDF (OCR is not
+   currently enabled for scanned documents).
+2. Wait for the persisted ingestion task to complete.
+3. Open **Chat**, scope the conversation to the PDF, and ask a question whose
+   answer is present in the document.
+4. Open a sentence citation and verify that it returns to the exact PDF page.
+5. Save the answer as a Note, restart both processes, and reopen the
+   conversation, citation, and Note.
+
+This is the release-critical path. Video, audio, PPTX, DOCX, Cards, FSRS, and
+Concept Graph code remain available, but they do not expand the MVP promise.
+
+## Current evidence
+
+The public CS336 product slice uses the official Stanford CS336 Spring 2025
+Lecture 3 slides, pinned to upstream commit
 `b98b08a98d9d47a69bbdcb4e96a58aa48ee4d13b` and PDF SHA-256
 `3692b3d25b5605e70930abc81d63241c71c136dfb573029d4544420925e0f9c4`.
 
-| Check | Observed result |
+| Check | Recorded result |
 | --- | --- |
 | Canonical ingestion | The production PDF adapter created 68 page Chunks with PDF-page Locators |
-| Retrieval and citations | Production MiniLM returned the relevant page-65/page-66 Chunks; both Chat citations reopened the exact quotations and pages |
-| Deterministic graph path | `Full Attention -> Sparse Attention -> Sliding-window Attention`, two hops, with per-edge evidence |
-| Persistence | The completed answer, citation snapshots, GraphVersion, result hash, route, and support basis survived reload |
+| Retrieval and citations | MiniLM returned the relevant page-65/page-66 Chunks; both citations reopened the exact quotations and pages |
+| Persistence | The answer, citation snapshots, GraphVersion, result hash, route, and support basis survived reload |
+| Deterministic graph path | `Full Attention -> Sparse Attention -> Sliding-window Attention`, two hops with evidence on each edge |
 
-Only the final generation call used a deterministic, contract-compliant script.
-This acceptance demonstrates the real Source, retrieval, graph, persistence,
-citation, and UI wiring. It does **not** establish Qwen answer quality,
-hallucination rate, retrieval improvement, or graph accuracy. The three-Concept
-/ two-Relation graph is an engineering fixture, not human gold.
+Only the final generation call in this recorded slice used a deterministic,
+contract-compliant script. This evidence validates Source ingestion, retrieval,
+persistence, citation, graph, and UI wiring. It does **not** establish live
+Qwen answer quality, hallucination rate, graph accuracy, or held-out quality.
+The three-Concept graph is an engineering fixture, not human gold.
 
 Reproduce the isolated product workspace without committing the upstream PDF:
 
@@ -110,128 +109,99 @@ uv run --frozen python -m product_demo `
   --workspace data/product_demos/cs336-l3-attention-local
 ```
 
+The frozen v1 evaluation receipt remains historically verifiable against its
+recorded Git derivation commit. A later product-core cleanup changed the live
+`uv.lock`, so that historical receipt is not presented as a current exact
+replay environment; a new replay claim requires a newly derived protocol.
+
 See the [public-course benchmark contract](docs/evaluation/public-course-benchmark.md)
-and [append-only engineering record](docs/productization-log.md) for the full
-claim boundary.
+and [engineering record](docs/productization-log.md) for the full claim boundary.
 
-## Quick start
+## Architecture
 
-Requirements:
+```mermaid
+flowchart LR
+    A["PDF / Video / Audio / PPTX / DOCX / Text / Note"]
+    B["Modality adapter"]
+    C["CourseSourceChunk<br/>text + hash + typed Locator"]
+    D["BM25 / MiniLM retrieval"]
+    E["Grounded Chat"]
+    F["Validated citation snapshot"]
+    G["Exact source location"]
+    H["Editable Note"]
+    I["Versioned Concept Graph"]
 
-- Python 3.11 and [uv](https://docs.astral.sh/uv/)
-- Node.js 22 and npm
-- FFmpeg for video/audio processing
-- Ollama or another compatible local model server for generated answers
-
-Pull the current default local model:
-
-```powershell
-ollama pull qwen3:4b
+    A --> B --> C --> D --> E --> F --> G
+    E --> H
+    C --> I
+    I -. "navigation context only" .-> E
 ```
 
-Start the backend:
+SQLite is the local source of truth. Transactions, immutable revisions,
+content hashes, compare-and-swap publication, and deterministic graph traversal
+provide the current guarantees without adding distributed infrastructure before
+measurements justify it.
 
-```powershell
-cd backend
-$env:PYTHONUTF8='1'
-$env:PYTHONDONTWRITEBYTECODE='1'
-uv sync --frozen
-uv run python -B -m uvicorn app.main:app `
-  --host 127.0.0.1 --port 8001 --reload
-```
+## Technology
 
-Start the frontend in a second terminal:
-
-```powershell
-cd frontend
-npm.cmd ci
-npm.cmd run dev
-```
-
-Open `http://127.0.0.1:5174`. The FastAPI schema is available at
-`http://127.0.0.1:8001/docs`.
+| Layer | Current choice |
+| --- | --- |
+| API and services | Python 3.11, FastAPI, Pydantic |
+| Storage and search | SQLite, SQL migrations, FTS5/BM25 |
+| ML and retrieval | PyTorch, SentenceTransformers/MiniLM, exact cosine, RRF |
+| Generation | Ollama-compatible structured output with citation validation and refusal |
+| Web | TypeScript, React, Vite |
+| Verification | pytest, Vitest, ESLint, TypeScript build, GitHub Actions |
 
 ## Repository map
 
 | Path | Responsibility |
 | --- | --- |
-| `backend/app/` | FastAPI routes, service/store boundaries, SQLite state, retrieval, citations, tasks, Notes, and Concept Graph |
-| `frontend/src/features/` | Product features for Sources, Chat, Notes, recovery, and Concept Graph |
-| `frontend/src-tauri/` | Deferred desktop shell retained in source; not a current distribution target |
-| `backend/rag_lab/` | Isolated retrieval/generation experiments; not a product runtime dependency |
-| `backend/golden_graph/` | Frozen public-course protocol and human-gold tooling |
+| `backend/app/` | APIs, service/store boundaries, SQLite state, jobs, retrieval, citations, and Notes |
+| `frontend/src/features/` | Sources, Chat, Notes, recovery, Studio, and Concept Graph interfaces |
+| `backend/rag_lab/` | Offline retrieval and generation experiments; not a runtime dependency |
+| `backend/golden_graph/` | Versioned public-course protocols and human-review tooling |
+| `frontend/src-tauri/` | Manual desktop preview code; not a supported distribution path |
 | `docs/decisions/` | Architecture decision records |
 | `docs/modules/` | Module contracts and implementation notes |
-| `docs/learning/` | Technical-stack notes and maintainer handoffs |
 
-## Implementation decisions
+## Verify a change
 
-- **Canonical projection:** modality adapters converge on one Source/Chunk/
-  Locator contract, so Chat and future Understanding pipelines do not invent
-  separate evidence models.
-- **Grounding by construction:** model output names server-issued evidence IDs;
-  the backend validates them and persists immutable citation snapshots.
-- **Reliable local jobs:** parsing, indexing, and generation use persisted task
-  states, idempotency keys, cancellation, retry, and restart recovery.
-- **Versioned graph truth:** accepted Concepts and Relations are published into
-  content-hashed GraphVersions; BFS and Kahn traversal run against one exact
-  snapshot.
-- **Measured complexity:** SQLite and in-process deterministic graph algorithms
-  remain the default until scale or query evidence justifies Neo4j, Redis,
-  queues, or microservices.
+```powershell
+cd backend
+uv sync --frozen --group dev
+uv run --frozen python -m compileall -q app tests
+uv run --frozen pytest -q
 
-## Verification
+cd ../frontend
+npm.cmd ci
+npm.cmd test
+npm.cmd run lint
+npm.cmd run build
+```
 
-The repository has change-level GitHub Actions for backend and frontend code.
-The G4.3 verification checkpoint recorded:
+CI also runs Rust formatting, compilation, and tests for the retained desktop
+preview code. The manual desktop workflow builds an artifact for engineering
+inspection only; it does not publish a release.
 
-- the risk-corresponding backend regression passed `158` tests with `1`
-  skipped;
-- the complete frontend regression passed `213` tests across `28` files;
-- frontend lint, the TypeScript/Vite production build, Python compilation, and
-  diff checks passed;
-- a complete local backend run did not finish within the 30-minute Windows
-  budget, so it is deliberately not reported as passing. Remote CI remains the
-  final full-suite gate.
+## Known limitations
 
-The later repository-scope cleanup did not add or rerun test suites at the
-maintainer's request; the next normal CI run is its integration check.
-
-Automated tests demonstrate contracts and regressions; they are not model- or
-graph-quality metrics.
-
-## What is not done
-
-- one automatic multimodal Understanding pipeline from canonical Chunks to
-  reviewed Cards and Concepts;
-- a maintainer-authored human gold graph and public Concept/Relation/path
-  quality metrics;
-- live-model structured-output reliability, answer-quality, hallucination, and
-  semantic-vs-graph ablations;
-- durable browser E2E, complete keyboard/accessibility acceptance, and 1k/10k
-  graph performance profiles;
-- recruiter-ready onboarding, a tracked screenshot/video demo, global search,
-  and a public deployment model;
-- cloud sync, multi-user collaboration, and a plugin/API ecosystem. These are
-  not implied by the current local personal-workspace scope.
-
-Detailed implementation history, tradeoffs, and failures are recorded in the
-[engineering log](docs/productization-log.md). The
-[ADR-0008](docs/decisions/ADR-0008-evidence-grounded-concept-graph-and-deterministic-paths.md)
-defines the graph and Source-authority boundary.
-
-## Research notes
-
-The remaining research packages focus on retrieval, grounded generation, and
-graph organization because they directly inform the product architecture:
-
-- [RAG retrieval and graph study](docs/RAG%20retrieval%20and%20graph%20study.md)
-- [Graph as an associative knowledge structure](docs/Graph%20as%20associative%20knowledge%20structure.md)
-
-Their recorded numbers are development evidence, not broad benchmark or SOTA
-claims.
+- No durable browser E2E test or published 90-second demo yet.
+- Scanned PDFs are not supported because OCR is not enabled.
+- The default live Qwen model has not passed a frozen structured-output and
+  answer-quality release gate.
+- Retrieval numbers are development evidence over candidate annotations, not
+  held-out or SOTA claims.
+- The candidate graph is sparse and is useful for navigation experiments, not
+  as factual authority.
+- No cloud sync, authentication, collaboration, or public deployment.
+- The repository still contains stable `VCC_*`, `.vcc-backup`, the legacy
+  desktop bundle/data identifiers, and `video-course-cards-*` protocol
+  identifiers to read older local data, preserve desktop-preview drafts, and
+  verify immutable historical artifacts. New configuration uses
+  `CITEFOLD_*`; those compatibility identifiers are not the product name.
 
 ## License
 
-No open-source license has been declared. Source availability does not grant
-permission to redistribute or reuse the code.
+No open-source license has been declared. The repository is source-available
+for review, but reuse and redistribution are not granted.

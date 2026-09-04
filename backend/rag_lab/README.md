@@ -1,7 +1,7 @@
 # RAG Lab
 
 This package contains controlled retrieval and grounded-answer experiments for
-Video Course Cards. It is intentionally separate from `backend/app`:
+Citefold. It is intentionally separate from `backend/app`:
 
 ```text
 app     -> product APIs, SQLite workflows, and user-facing retrieval

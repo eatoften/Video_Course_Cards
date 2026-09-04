@@ -1,6 +1,6 @@
 # Productization Log
 
-Last updated: 2026-08-09
+Last updated: 2026-09-03
 
 This append-only log records verified product engineering work. It exists to
 preserve the reasoning behind the implementation, not to advertise unverified
@@ -4670,3 +4670,89 @@ the M0-M4 ownership scale locally and points to real code, ADRs, modules, tests,
 and failure boundaries. The root README describes the product rather than
 advertising internal plans. No runtime code, schema, dependency, model, test, or
 product behavior changed in this documentation-only cleanup.
+
+## M0 — Canonical Citefold identity and truthful CI
+
+**Status:** Locally verified; awaiting maintainer review, push, and public CI
+
+**Date:** 2026-09-03
+
+**Branch:** `codex/citefold-m0`
+
+### User outcome
+
+The repository now presents one product name and one bounded MVP story to a
+new reader: import a text-based PDF, persist its ingestion, retrieve evidence,
+answer with an exact page citation, save a Note, and reopen that state after a
+restart. The supported path remains the React browser client plus local
+FastAPI backend. Desktop code is an engineering preview, not a released
+installer.
+
+### CI root cause and evidence decision
+
+The only failing public backend test required the CS336 frozen v1 receipt to
+match the current `uv.lock`. That receipt correctly binds the historical lock
+from its derivation commit, while a later removal of the isolated multimodal
+reader changed the live lock. The test therefore conflated two different
+claims already represented by the protocol API:
+
+- historical authority: the immutable receipt and its Git derivation remain
+  verifiable;
+- current replay readiness: the checkout must match the receipt's exact
+  environment and must fail closed when it does not.
+
+The regression now asserts both claims separately. No frozen protocol,
+sidecar hash, source-slice summary, or fixture was rewritten. The frozen
+protocol SHA-256 remains
+`e09c91283a44e9cf2ebb6094a6ecbc6dec85d5f32c4dc82c1a5c65135838174f`.
+A future current-environment replay claim requires a newly derived protocol,
+not a replacement hash in v1.
+
+### Brand and compatibility boundary
+
+User-facing UI, health identity, package metadata, environment examples,
+documentation, export names, Tauri window text, sidecar names, and preview
+artifact names now use Citefold. `CITEFOLD_*` is the canonical configuration
+surface; `VCC_*` and the old instance-token header remain read-compatible.
+
+Stable storage and evidence identities were deliberately not globally
+renamed. The `.vcc-backup` format, old backup app name, desktop data folder,
+Tauri bundle identifier, browser storage keys, and `video-course-cards-*`
+attestation namespaces remain compatible so existing local state and signed or
+frozen evidence do not disappear. Legacy backup manifests validate and are
+normalized to the current Citefold view.
+
+The Windows preview workflow is manual-only and read-only with respect to
+repository contents; it uploads an inspection artifact but cannot publish a
+release. The smoke script now returns to its parent build instead of exiting
+the shared PowerShell host, chooses an available local port, checks a random
+instance token plus the exact `citefold` health identity, captures diagnostics,
+and restores the caller's environment. MSI was removed from the preview
+script's accepted bundle choices because a product-name migration would need
+the historical upgrade code; only the exercised NSIS path remains.
+
+### Verification
+
+- `uv sync --frozen --group dev --offline`: clean environment created from the
+  renamed lock metadata;
+- Python bytecode compilation: passed;
+- complete Windows backend run: `1008 passed, 7 skipped`, with one upstream
+  Starlette/httpx deprecation warning, in `2229.36s`;
+- post-run compatibility/isolation regression, including the newly added
+  legacy backup case: `15 passed`;
+- complete frontend run: `213 passed` across `28` files;
+- frontend ESLint and TypeScript/Vite production build: passed; main generated
+  JavaScript chunk `380.26 kB` minified (`107.46 kB` gzip);
+- Rust: `cargo fmt --check`, `cargo check --locked`, and all `6` unit tests
+  passed;
+- PyInstaller sidecar build and identity-bound `/health` smoke test: passed;
+- all edited PowerShell files parse without syntax errors;
+- final `git diff --check`: passed.
+
+### Remaining boundary
+
+This local result is not yet evidence about GitHub `main`; the public gate is a
+new three-job CI run after maintainer review and push. M1 still owns the clean
+browser E2E, screenshots, 90-second demo, live-model quality gate, and failure
+acceptance. OCR remains unsupported, and no hosted service or supported
+desktop installer is claimed.

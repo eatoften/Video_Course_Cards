@@ -6,7 +6,7 @@
 
 ## Context
 
-Video Course Cards grew from a video-to-card pipeline into several capable but
+Citefold, then named Video Course Cards, grew from a video-to-card pipeline into several capable but
 parallel learning tools:
 
 ```text

@@ -1,6 +1,6 @@
 # Local LLM Setup
 
-Video Course Cards talks to local language models through an
+Citefold talks to local language models through an
 OpenAI-compatible HTTP API. The application backend calls the model; the
 browser never calls Ollama, LM Studio, or vLLM directly.
 
@@ -32,13 +32,13 @@ copy .env.example .env
 Default settings:
 
 ```env
-VCC_LLM_PROVIDER=ollama
-VCC_LLM_BASE_URL=http://localhost:11434/v1
-VCC_LLM_MODEL=qwen3:4b
-VCC_LLM_API_KEY=local
-VCC_LLM_TEMPERATURE=0.0
-VCC_LLM_MAX_TOKENS=8192
-VCC_LLM_TIMEOUT_SECONDS=120
+CITEFOLD_LLM_PROVIDER=ollama
+CITEFOLD_LLM_BASE_URL=http://localhost:11434/v1
+CITEFOLD_LLM_MODEL=qwen3:4b
+CITEFOLD_LLM_API_KEY=local
+CITEFOLD_LLM_TEMPERATURE=0.0
+CITEFOLD_LLM_MAX_TOKENS=8192
+CITEFOLD_LLM_TIMEOUT_SECONDS=120
 ```
 
 Start the backend:
@@ -65,10 +65,10 @@ In LM Studio:
 Then set:
 
 ```env
-VCC_LLM_PROVIDER=lmstudio
-VCC_LLM_BASE_URL=http://localhost:1234/v1
-VCC_LLM_MODEL=your-loaded-model-name
-VCC_LLM_API_KEY=local
+CITEFOLD_LLM_PROVIDER=lmstudio
+CITEFOLD_LLM_BASE_URL=http://localhost:1234/v1
+CITEFOLD_LLM_MODEL=your-loaded-model-name
+CITEFOLD_LLM_API_KEY=local
 ```
 
 ## vLLM
@@ -82,10 +82,10 @@ vllm serve Qwen/Qwen3-8B --port 8002
 Then set:
 
 ```env
-VCC_LLM_PROVIDER=vllm
-VCC_LLM_BASE_URL=http://localhost:8002/v1
-VCC_LLM_MODEL=Qwen/Qwen3-8B
-VCC_LLM_API_KEY=local
+CITEFOLD_LLM_PROVIDER=vllm
+CITEFOLD_LLM_BASE_URL=http://localhost:8002/v1
+CITEFOLD_LLM_MODEL=Qwen/Qwen3-8B
+CITEFOLD_LLM_API_KEY=local
 ```
 
 ## API Endpoints
